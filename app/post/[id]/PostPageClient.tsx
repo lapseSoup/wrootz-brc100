@@ -375,6 +375,35 @@ export default function PostPageClient({
             </div>
           ) : null}
 
+          {/* Owner Actions - Sell Content */}
+          {isOwner && !post.forSale && (
+            <div className="card-compact">
+              <div className="section-header">
+                <h3 className="section-title text-sm">Sell This Content</h3>
+              </div>
+              <SaleActions
+                postId={post.id}
+                action="list"
+                currentLockerShare={post.lockerSharePercentage}
+              />
+            </div>
+          )}
+
+          {isOwner && post.forSale && (
+            <div className="card-compact">
+              <div className="section-header">
+                <h3 className="section-title text-sm">Sale Status</h3>
+              </div>
+              {activeLocks.length > 0 ? (
+                <p className="text-sm text-[var(--foreground-muted)]">
+                  Sale cannot be canceled while there are active locks. This protects lockers.
+                </p>
+              ) : (
+                <SaleActions postId={post.id} action="cancel" />
+              )}
+            </div>
+          )}
+
           {/* Tip Form - show for logged in users who aren't the owner */}
           {user && !isOwner && (
             <div className="card-compact">
@@ -451,35 +480,6 @@ export default function PostPageClient({
               inscriptionTxid={post.inscriptionTxid}
             />
           </div>
-
-          {/* Owner Actions */}
-          {isOwner && !post.forSale && (
-            <div className="card-compact">
-              <div className="section-header">
-                <h3 className="section-title text-sm">Sell This Content</h3>
-              </div>
-              <SaleActions
-                postId={post.id}
-                action="list"
-                currentLockerShare={post.lockerSharePercentage}
-              />
-            </div>
-          )}
-
-          {isOwner && post.forSale && (
-            <div className="card-compact">
-              <div className="section-header">
-                <h3 className="section-title text-sm">Sale Status</h3>
-              </div>
-              {activeLocks.length > 0 ? (
-                <p className="text-sm text-[var(--foreground-muted)]">
-                  Sale cannot be canceled while there are active locks. This protects lockers.
-                </p>
-              ) : (
-                <SaleActions postId={post.id} action="cancel" />
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>
