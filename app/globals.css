@@ -1,0 +1,327 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Surfaces - Layered for depth */
+  --background: #f8fafc;
+  --surface-1: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+
+  /* Text hierarchy */
+  --foreground: #0f172a;
+  --foreground-secondary: #475569;
+  --foreground-muted: #94a3b8;
+
+  /* Borders */
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus: #3b82f6;
+
+  /* Legacy aliases */
+  --card: var(--surface-1);
+  --card-border: var(--border);
+  --muted: var(--foreground-muted);
+  --secondary: var(--foreground-secondary);
+
+  /* Primary (Blue) */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-light: #dbeafe;
+
+  /* Accent (Emerald - Wrootz brand) */
+  --accent: #10b981;
+  --accent-hover: #059669;
+  --accent-light: #d1fae5;
+
+  /* Danger */
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-light: #fee2e2;
+
+  /* Warning */
+  --warning: #f59e0b;
+  --warning-light: #fef3c7;
+}
+
+[data-theme="dark"] {
+  /* Surfaces - True layered dark */
+  --background: #0c0f14;
+  --surface-1: #151921;
+  --surface-2: #1e232d;
+  --surface-3: #282f3c;
+
+  /* Text hierarchy */
+  --foreground: #f1f5f9;
+  --foreground-secondary: #cbd5e1;
+  --foreground-muted: #94a3b8;
+
+  /* Borders */
+  --border: #2d3748;
+  --border-strong: #4a5568;
+  --border-focus: #60a5fa;
+
+  /* Legacy aliases */
+  --card: var(--surface-1);
+  --card-border: var(--border);
+  --muted: var(--foreground-muted);
+  --secondary: var(--foreground-secondary);
+
+  /* Primary */
+  --primary: #60a5fa;
+  --primary-hover: #93c5fd;
+  --primary-light: rgba(96, 165, 250, 0.15);
+
+  /* Accent */
+  --accent: #34d399;
+  --accent-hover: #6ee7b7;
+  --accent-light: rgba(52, 211, 153, 0.15);
+
+  /* Danger */
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-light: rgba(248, 113, 113, 0.15);
+
+  /* Warning */
+  --warning: #fbbf24;
+  --warning-light: rgba(251, 191, 36, 0.15);
+}
+
+html {
+  font-size: 87.5%; /* 14px base - makes everything smaller/zoomed out */
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary);
+}
+
+@layer components {
+  /* ===== BUTTONS ===== */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2
+           px-4 py-2.5
+           rounded-lg
+           font-medium text-sm
+           transition-all duration-200
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--primary)]
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    --tw-ring-offset-color: var(--background);
+  }
+
+  .btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .btn-primary {
+    @apply bg-[var(--primary)] text-white shadow-elevation-2;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-[var(--primary-hover)] shadow-elevation-3;
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    @apply bg-[var(--surface-1)] text-[var(--foreground)] border border-[var(--border)];
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    @apply bg-[var(--surface-2)] border-[var(--border-strong)];
+  }
+
+  .btn-danger {
+    @apply bg-[var(--danger)] text-white focus-visible:ring-[var(--danger)];
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    @apply bg-[var(--danger-hover)];
+  }
+
+  .btn-accent {
+    @apply bg-[var(--accent)] text-white shadow-elevation-2 focus-visible:ring-[var(--accent)];
+  }
+
+  .btn-accent:hover:not(:disabled) {
+    @apply bg-[var(--accent-hover)] shadow-elevation-3;
+    transform: translateY(-1px);
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-[var(--foreground-secondary)];
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    @apply bg-[var(--surface-2)] text-[var(--foreground)];
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs rounded-md;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base rounded-xl;
+  }
+
+  /* ===== CARDS ===== */
+  .card {
+    @apply bg-[var(--surface-1)]
+           border border-[var(--border)]
+           rounded-xl
+           p-5
+           shadow-elevation-2
+           transition-all duration-200;
+  }
+
+  .card-elevated {
+    @apply card shadow-elevation-3;
+  }
+
+  .card-interactive {
+    @apply card cursor-pointer;
+  }
+
+  .card-interactive:hover {
+    @apply border-[var(--border-strong)] shadow-elevation-3;
+    transform: translateY(-2px);
+  }
+
+  .card-compact {
+    @apply card p-4;
+  }
+
+  .card-flush {
+    @apply card p-0;
+  }
+
+  /* ===== INPUTS ===== */
+  .input {
+    @apply w-full
+           px-4 py-2.5
+           rounded-lg
+           border border-[var(--border)]
+           bg-[var(--surface-1)]
+           text-[var(--foreground)]
+           placeholder-[var(--foreground-muted)]
+           text-sm
+           transition-all duration-200
+           focus:outline-none focus:border-[var(--border-focus)] focus:ring-2 focus:ring-[var(--primary-light)]
+           focus-visible:border-[var(--primary)] focus-visible:ring-[var(--primary-light)];
+  }
+
+  .input:hover:not(:focus):not(:disabled) {
+    @apply border-[var(--border-strong)];
+  }
+
+  .label {
+    @apply block text-sm font-medium text-[var(--foreground)] mb-2;
+  }
+
+  .label-hint {
+    @apply text-xs text-[var(--foreground-muted)] mt-1.5;
+  }
+
+  /* ===== TAGS ===== */
+  .tag {
+    @apply inline-flex items-center
+           px-2.5 py-1
+           rounded-full
+           text-xs font-medium
+           transition-colors duration-150;
+    background-color: var(--primary-light);
+    color: var(--primary);
+  }
+
+  .tag:hover {
+    @apply bg-[var(--primary)] text-white;
+  }
+
+  .tag-accent {
+    background-color: var(--accent-light);
+    color: var(--accent);
+  }
+
+  .tag-accent:hover {
+    @apply bg-[var(--accent)] text-white;
+  }
+
+  .tag-muted {
+    @apply bg-[var(--surface-2)] text-[var(--foreground-muted)];
+  }
+
+  /* ===== WROOTZ BADGE ===== */
+  .wrootz-badge {
+    @apply inline-flex items-center gap-1.5
+           px-3 py-1.5
+           rounded-lg
+           text-sm font-semibold
+           border border-[var(--accent)];
+    background: linear-gradient(135deg, var(--accent-light) 0%, rgba(16, 185, 129, 0.25) 100%);
+    color: var(--accent);
+  }
+
+  .wrootz-badge-sm {
+    @apply wrootz-badge px-2 py-1 text-xs;
+  }
+
+  .wrootz-badge-lg {
+    @apply wrootz-badge px-4 py-2 text-lg;
+  }
+
+  /* ===== SECTION HEADERS ===== */
+  .section-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  .section-title {
+    @apply text-base font-semibold text-[var(--foreground)];
+  }
+
+  /* ===== DIVIDERS ===== */
+  .divider {
+    @apply h-px bg-[var(--border)] my-4;
+  }
+
+  .divider-lg {
+    @apply divider my-6;
+  }
+
+  /* ===== TAB STYLES ===== */
+  .tab-list {
+    @apply flex border-b border-[var(--border)];
+  }
+
+  .tab-button {
+    @apply px-4 py-3 text-sm font-medium text-[var(--foreground-muted)]
+           border-b-2 border-transparent
+           transition-colors duration-200
+           hover:text-[var(--foreground)] hover:bg-[var(--surface-2)];
+  }
+
+  .tab-button-active {
+    @apply tab-button text-[var(--primary)] border-[var(--primary)];
+  }
+}

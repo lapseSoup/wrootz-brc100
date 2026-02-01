@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  password      String   // hashed
+  bio           String?  // User bio/about section
+  avatarUrl     String?  // Profile picture URL
+
+  // Wallet connection (real BSV)
+  walletAddress String?  @unique // BSV address from connected wallet
+  walletType    String?  // 'yours' | 'shuallet'
+
+  // NOTE: balance and lockedAmount are now tracked on-chain
+  // These fields are kept for caching/display purposes only
+  cachedBalance     Float    @default(0.0) // Cached balance from wallet
+  cachedLockedAmount Float   @default(0.0) // Sum of amounts in active locks
+
+  isAdmin       Boolean  @default(false) // Admin users have special controls
+  displayUnit   String   @default("sats") // "sats" or "bsv"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  posts         Post[]   @relation("PostCreator")
+  ownedPosts    Post[]   @relation("PostOwner")
+  locks         Lock[]
+  transactions  Transaction[]
+  followedTags  FollowedTag[]
+  followedUsers FollowedUser[] @relation("Follower")
+  followers     FollowedUser[] @relation("Following")
+  notifications Notification[] @relation("NotificationRecipient")
+  hiddenPosts   HiddenPost[]
+}
+
+// Notifications
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // 'lock_on_post', 'followed_user_post', 'followed_tag_activity', 'new_follower'
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relations
+  userId    String
+  user      User     @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  actorId   String?  // The user who triggered the notification
+}
+
+model Post {
+  id                    String   @id @default(cuid())
+  title                 String
+  body                  String
+  imageUrl              String?  // Optional image
+  videoUrl              String?  // Optional YouTube video URL
+  lockerSharePercentage Float    @default(10.0) // Percent of sale shared with lockers
+  forSale               Boolean  @default(false)
+  salePrice             Float    @default(0.0)
+  listedAt              DateTime? // When the post was listed for sale (null if not listed)
+  totalTu               Float    @default(0.0) // Cached total TU for sorting
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // 1Sat Ordinal fields (on-chain content)
+  inscriptionId   String?  @unique // The inscription origin/ID on BSV blockchain
+  inscriptionTxid String?  // Transaction ID of the inscription
+  contentHash     String?  // Hash of the content for verification
+
+  // Relations
+  creatorId     String
+  creator       User     @relation("PostCreator", fields: [creatorId], references: [id])
+  ownerId       String
+  owner         User     @relation("PostOwner", fields: [ownerId], references: [id])
+  locks         Lock[]
+  transactions  Transaction[]
+  notifications Notification[]
+
+  // Bidirectional links (Ted Nelson style)
+  outgoingLinks PostLink[] @relation("LinksFrom")
+  incomingLinks PostLink[] @relation("LinksTo")
+  hiddenBy      HiddenPost[]
+
+  @@index([inscriptionId])
+}
+
+// Bidirectional post linking - comments are posts that link to other posts
+model PostLink {
+  id           String   @id @default(cuid())
+  type         String   @default("reply") // 'reply', 'quote', 'reference'
+  createdAt    DateTime @default(now())
+
+  // Source post (the one doing the linking, e.g., the reply)
+  sourcePostId String
+  sourcePost   Post     @relation("LinksFrom", fields: [sourcePostId], references: [id], onDelete: Cascade)
+
+  // Target post (the one being linked to, e.g., the parent)
+  targetPostId String
+  targetPost   Post     @relation("LinksTo", fields: [targetPostId], references: [id], onDelete: Cascade)
+
+  // Who created this link
+  creatorId    String
+
+  @@unique([sourcePostId, targetPostId])
+  @@index([targetPostId])
+}
+
+model Lock {
+  id             String   @id @default(cuid())
+  amount         Float    // Amount in BSV (satoshis / 100_000_000)
+  satoshis       Int      // Amount in satoshis (for precision)
+  durationBlocks Int      // Total duration in blocks
+  startBlock     Int      // Block height when lock was created
+  remainingBlocks Int     // Blocks remaining (updated by block monitor)
+  initialTu      Float    // TU at creation
+  currentTu      Float    // Current TU (decays over time)
+  tag            String?  // Optional tag (one per lock)
+  expired        Boolean  @default(false)
+
+  // On-chain tracking
+  txid           String?  // Transaction ID of the lock on BSV blockchain
+  lockAddress    String?  // Address where BSV is locked
+  unlockTxid     String?  // Transaction ID when unlocked
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+  postId    String
+  post      Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([txid])
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  action       String   // 'Lock', 'Unlock', 'Buy', 'Sell', 'Profit', 'Create', 'Tip'
+  amount       Float    // Amount in BSV
+  satoshis     Int?     // Amount in satoshis (for precision)
+  description  String?
+
+  // On-chain tracking
+  txid         String?  // Transaction ID on BSV blockchain
+  confirmed    Boolean  @default(false) // Whether the transaction is confirmed
+  blockHeight  Int?     // Block height when confirmed
+
+  createdAt    DateTime @default(now())
+
+  // Relations
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  postId  String?
+  post    Post?  @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([txid])
+}
+
+// Blockchain state (real BSV blocks)
+model BlockchainState {
+  id              String   @id @default("singleton")
+  currentBlock    Int      @default(0)  // Current BSV blockchain height
+  lastSyncTime    DateTime @default(now())
+  network         String   @default("mainnet") // 'mainnet' or 'testnet'
+}
+
+// Following system
+model FollowedTag {
+  id        String   @id @default(cuid())
+  tag       String
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tag])
+}
+
+model FollowedUser {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  followerId  String
+  follower    User   @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User   @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+}
+
+// Hidden posts - users can hide posts they don't want to see
+model HiddenPost {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+}

@@ -1,0 +1,39 @@
+{
+  "name": "wrootz",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbo",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "clean": "rm -rf .next",
+    "restart": "rm -rf .next && next dev"
+  },
+  "dependencies": {
+    "@bsv/sdk": "^1.10.3",
+    "@bsv/wallet-toolbox": "^1.7.22",
+    "@prisma/client": "^5.22.0",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.3",
+    "bsv": "^2.0.10",
+    "dotenv": "^17.2.3",
+    "next": "14.2.35",
+    "prisma": "^5.22.0",
+    "react": "^18",
+    "react-dom": "^18",
+    "yours-wallet-provider": "^3.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.23",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.35",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}
