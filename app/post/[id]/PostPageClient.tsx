@@ -115,6 +115,9 @@ export default function PostPageClient({
 
   const isOwner = user?.id === post.ownerId
 
+  // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
+  const actualTotalWrootz = activeLocks.reduce((sum, lock) => sum + lock.currentTu, 0)
+
   // Fetch updated data
   const fetchData = useCallback(async () => {
     try {
@@ -202,7 +205,7 @@ export default function PostPageClient({
                 <h1 className="text-headline flex-1">{post.title}</h1>
               )}
               <div className={`wrootz-badge-lg flex-shrink-0 ${!post.title ? 'ml-auto' : ''}`}>
-                {formatWrootz(post.totalTu)} wrootz
+                {formatWrootz(actualTotalWrootz)} wrootz
               </div>
             </div>
 
