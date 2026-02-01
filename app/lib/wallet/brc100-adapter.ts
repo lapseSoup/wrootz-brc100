@@ -220,7 +220,7 @@ export class BRC100WalletAdapter implements WalletProvider {
             totalSatoshis += basketSats
             foundOutputs = true
           }
-        } catch (e) {
+        } catch {
           // Basket doesn't exist or error, try next
           console.log(`Basket '${basket}' not available`)
         }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/app/lib/db'
-import { verifyLock, type LockVerification } from '@/app/lib/blockchain-verify'
+import { verifyLock } from '@/app/lib/blockchain-verify'
 
 /**
  * GET /api/verify/lock/[txid]

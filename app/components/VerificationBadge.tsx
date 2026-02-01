@@ -5,7 +5,6 @@ import { useState } from 'react'
 interface VerificationBadgeProps {
   postId: string
   inscriptionTxid?: string | null
-  lockCount: number
 }
 
 interface VerificationResult {
@@ -26,8 +25,7 @@ interface VerificationResult {
 
 export default function VerificationBadge({
   postId,
-  inscriptionTxid,
-  lockCount
+  inscriptionTxid
 }: VerificationBadgeProps) {
   const [verifying, setVerifying] = useState(false)
   const [result, setResult] = useState<VerificationResult | null>(null)

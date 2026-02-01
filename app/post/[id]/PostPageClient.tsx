@@ -478,7 +478,6 @@ export default function PostPageClient({
             <VerificationBadge
               postId={post.id}
               inscriptionTxid={post.inscriptionTxid}
-              lockCount={activeLocks.length + expiredLocks.length}
             />
           </div>
 
