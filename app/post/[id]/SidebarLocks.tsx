@@ -17,7 +17,7 @@ interface Lock {
 
 interface SidebarLocksProps {
   locks: Lock[]
-  totalTu: number
+  totalTu?: number // Deprecated - now calculated from locks
 }
 
 function CompactLockItem({ lock, totalTu }: { lock: Lock; totalTu: number }) {
@@ -114,11 +114,14 @@ function CompactLockItem({ lock, totalTu }: { lock: Lock; totalTu: number }) {
   )
 }
 
-export default function SidebarLocks({ locks, totalTu }: SidebarLocksProps) {
+export default function SidebarLocks({ locks }: SidebarLocksProps) {
   const [showAll, setShowAll] = useState(false)
   const sortedLocks = [...locks].sort((a, b) => b.currentTu - a.currentTu)
   const displayedLocks = showAll ? sortedLocks : sortedLocks.slice(0, 5)
   const hasMore = locks.length > 5
+
+  // Calculate actual total from active locks (more accurate than post.totalTu which may not be synced)
+  const actualTotalTu = locks.reduce((sum, lock) => sum + lock.currentTu, 0)
 
   return (
     <div>
@@ -129,7 +132,7 @@ export default function SidebarLocks({ locks, totalTu }: SidebarLocksProps) {
 
       <div className="space-y-0">
         {displayedLocks.map((lock) => (
-          <CompactLockItem key={lock.id} lock={lock} totalTu={totalTu} />
+          <CompactLockItem key={lock.id} lock={lock} totalTu={actualTotalTu} />
         ))}
       </div>
 
