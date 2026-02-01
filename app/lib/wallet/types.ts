@@ -86,7 +86,7 @@ export interface WalletProvider {
   getBlockHeight?(): Promise<number>
 }
 
-export type WalletType = 'brc100' | 'none'
+export type WalletType = 'brc100' | 'simplysats' | 'none'
 
 export interface WalletState {
   type: WalletType
