@@ -129,6 +129,13 @@ model Lock {
   txid           String?  // Transaction ID of the lock on BSV blockchain
   lockAddress    String?  // Address where BSV is locked
   unlockTxid     String?  // Transaction ID when unlocked
+  confirmed      Boolean  @default(false)  // Whether tx exists on-chain
+
+  // Blockchain verification (free via WhatsOnChain API)
+  verified       Boolean  @default(false)  // Whether lock passes all verification checks
+  verifiedAt     DateTime?                 // When last verified
+  onChainAmount  Int?                      // Actual satoshis found on-chain
+  onChainUnlock  Int?                      // Actual unlock block from CLTV script
 
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

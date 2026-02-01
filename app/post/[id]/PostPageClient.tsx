@@ -12,6 +12,7 @@ import SidebarHistory from './SidebarHistory'
 import TransactionHistory from './TransactionHistory'
 import RepliesList from './RepliesList'
 import YouTubeEmbed from '@/app/components/YouTubeEmbed'
+import VerificationBadge from '@/app/components/VerificationBadge'
 
 interface Lock {
   id: string
@@ -465,6 +466,18 @@ export default function PostPageClient({
               <TransactionHistory transactions={transactions} />
             </div>
           )}
+
+          {/* Blockchain Verification */}
+          <div className="card-compact">
+            <div className="section-header">
+              <h3 className="section-title text-sm">On-Chain Verification</h3>
+            </div>
+            <VerificationBadge
+              postId={post.id}
+              inscriptionTxid={post.inscriptionTxid}
+              lockCount={activeLocks.length + expiredLocks.length}
+            />
+          </div>
 
           {/* Owner Actions */}
           {isOwner && !post.forSale && (
