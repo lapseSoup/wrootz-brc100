@@ -656,11 +656,18 @@ export async function getPostsWithTU(options?: {
   })
 
   // Add computed fields
-  return posts.map(post => ({
-    ...post,
-    replyCount: post.incomingLinks.length,
-    replyTo: post.outgoingLinks[0]?.targetPost || null
-  }))
+  return posts.map(post => {
+    // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
+    const actualTotalTu = post.locks.reduce((sum, lock) => sum + lock.currentTu, 0)
+
+    return {
+      ...post,
+      // Override totalTu with the calculated value from active locks
+      totalTu: actualTotalTu,
+      replyCount: post.incomingLinks.length,
+      replyTo: post.outgoingLinks[0]?.targetPost || null
+    }
+  })
 }
 
 export async function getPostById(id: string) {
@@ -692,7 +699,17 @@ export async function getPostById(id: string) {
     }
   })
 
-  return post
+  if (!post) return null
+
+  // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
+  const activeLocks = post.locks.filter(lock => !lock.expired)
+  const actualTotalTu = activeLocks.reduce((sum, lock) => sum + lock.currentTu, 0)
+
+  return {
+    ...post,
+    // Override totalTu with the calculated value from active locks
+    totalTu: actualTotalTu
+  }
 }
 
 export async function getTopTags(limit: number = 5) {

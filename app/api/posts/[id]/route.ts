@@ -75,6 +75,9 @@ export async function GET(
   const activeLocks = post.locks.filter(l => !l.expired)
   const expiredLocks = post.locks.filter(l => l.expired)
 
+  // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
+  const actualTotalTu = activeLocks.reduce((sum, lock) => sum + lock.currentTu, 0)
+
   // Calculate tag wrootz
   const tagWrootz: Record<string, number> = {}
   for (const lock of activeLocks) {
@@ -93,6 +96,8 @@ export async function GET(
 
   return NextResponse.json({
     ...post,
+    // Override totalTu with the calculated value from active locks
+    totalTu: actualTotalTu,
     activeLocks,
     expiredLocks,
     sortedTags,

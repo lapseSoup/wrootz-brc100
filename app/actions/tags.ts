@@ -250,8 +250,11 @@ export async function getPostsByTag(tags: string | string[], limit: number = 50)
     .slice(0, limit)
     .map(([postId, tagWrootz]) => {
       const post = postMap[postId]
+      // Calculate actual totalTu from active locks (more accurate than post.totalTu which may be stale)
+      const actualTotalTu = post.locks.reduce((sum, lock) => sum + lock.currentTu, 0)
       return {
         ...post,
+        totalTu: actualTotalTu, // Override with calculated value
         tagWrootz, // combined wrootz for the specified tag(s)
         replyCount: post.incomingLinks.length,
         replyTo: post.outgoingLinks[0]?.targetPost || null
