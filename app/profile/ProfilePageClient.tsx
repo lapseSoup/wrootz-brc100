@@ -45,7 +45,10 @@ interface Transaction {
   id: string
   action: string
   amount: number
+  satoshis: number | null
   description: string | null
+  txid: string | null
+  confirmed: boolean
   createdAt: string
   post: { id: string; title: string } | null
 }
@@ -274,14 +277,24 @@ export default function ProfilePageClient({
                   </div>
                 </div>
                 <div className="text-right">
-                  {tx.amount > 0 && (
+                  {(tx.satoshis || tx.amount > 0) && (
                     <p className={`font-medium ${tx.action === 'Profit' ? 'text-[var(--accent)]' : ''}`}>
-                      {tx.action === 'Profit' ? '+' : ''}{formatSats(bsvToSats(tx.amount))} sats
+                      {tx.action === 'Profit' ? '+' : ''}{formatSats(tx.satoshis || bsvToSats(tx.amount))} sats
                     </p>
                   )}
                   <p className="text-xs text-[var(--muted)]">
                     {new Date(tx.createdAt).toLocaleString()}
                   </p>
+                  {tx.txid && (
+                    <a
+                      href={`https://whatsonchain.com/tx/${tx.txid}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-[var(--primary)] hover:underline"
+                    >
+                      {tx.txid.slice(0, 8)}...{tx.txid.slice(-6)} ↗
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

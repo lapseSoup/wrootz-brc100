@@ -15,7 +15,6 @@ interface User {
 
 interface BlockInfo {
   currentBlock: number
-  secondsUntilNext: number
 }
 
 export default function Header({ user }: { user: User | null }) {
@@ -70,23 +69,6 @@ export default function Header({ user }: { user: User | null }) {
     }
   }, [user])
 
-  // Countdown timer
-  useEffect(() => {
-    if (!blockInfo) return
-
-    const timer = setInterval(() => {
-      setBlockInfo(prev => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          secondsUntilNext: Math.max(0, prev.secondsUntilNext - 1)
-        }
-      })
-    }, 1000)
-
-    return () => clearInterval(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockInfo !== null]) // Only re-run when blockInfo changes from null to non-null
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light'
@@ -122,9 +104,8 @@ export default function Header({ user }: { user: User | null }) {
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                     </svg>
-                    #{blockInfo.currentBlock}
+                    #{blockInfo.currentBlock.toLocaleString()}
                   </span>
-                  <span className="text-[var(--foreground-muted)]">~{blockInfo.secondsUntilNext}s</span>
                   <span className="w-px h-3 bg-[var(--border)]" />
                 </>
               )}

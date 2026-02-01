@@ -2,18 +2,15 @@
 
 import { useState } from 'react'
 import { useWallet } from './WalletProvider'
-import { formatSats } from '@/app/lib/constants'
 
 export default function WalletButton() {
   const {
     isConnected,
     isConnecting,
     address,
-    balance,
     error,
     connect,
     disconnect,
-    refreshBalance,
     availableWallets
   } = useWallet()
 
@@ -50,7 +47,7 @@ export default function WalletButton() {
     }
   }
 
-  // Connected state - show balance only
+  // Connected state - show connected status
   if (isConnected && address) {
     return (
       <div className="relative">
@@ -61,10 +58,8 @@ export default function WalletButton() {
           {/* Connected indicator */}
           <div className="w-2 h-2 rounded-full bg-[var(--success)]" />
 
-          {/* Balance */}
-          <span className="text-sm font-medium">
-            {balance ? formatSats(balance.satoshis) : '0'} <span className="text-[var(--foreground-muted)]">sats</span>
-          </span>
+          {/* Connected text */}
+          <span className="text-sm font-medium">Connected</span>
 
           {/* Dropdown arrow */}
           <svg className={`w-3 h-3 transition-transform ${showDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,35 +79,6 @@ export default function WalletButton() {
                     BRC-100
                   </span>
                   <span className="text-xs text-[var(--success)]">Connected</span>
-                </div>
-              </div>
-
-              {/* Balance */}
-              <div className="px-4 py-3 border-b border-[var(--border)]">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-[var(--foreground-muted)] mb-1">Balance</p>
-                    <p className="text-lg font-bold text-[var(--accent)]">
-                      {balance ? formatSats(balance.satoshis) : '0'} sats
-                    </p>
-                    {balance && balance.satoshis > 0 && (
-                      <p className="text-xs text-[var(--foreground-muted)]">
-                        {balance.bsv.toFixed(8)} BSV
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      refreshBalance()
-                    }}
-                    className="p-2 hover:bg-[var(--surface-2)] rounded-lg transition-colors"
-                    title="Refresh balance"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
                 </div>
               </div>
 
