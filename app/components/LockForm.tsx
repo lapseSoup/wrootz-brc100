@@ -112,28 +112,37 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
   const getStatusMessage = () => {
     switch (txStatus) {
       case 'signing':
-        return 'Please sign the transaction in your wallet...'
+        return 'Sign in wallet...'
       case 'broadcasting':
-        return 'Broadcasting transaction to BSV network...'
+        return 'Broadcasting...'
       case 'confirming':
-        return 'Transaction sent! Waiting for confirmation...'
+        return 'Confirming...'
       default:
         return null
     }
   }
 
+  // Compact duration presets - just the most common ones
+  const compactDurations = [
+    { blocks: 6, label: '1h' },
+    { blocks: 36, label: '6h' },
+    { blocks: 144, label: '1d' },
+    { blocks: 1008, label: '1w' },
+    { blocks: 4320, label: '1mo' },
+  ]
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 overflow-visible">
+    <form onSubmit={handleSubmit} className="space-y-3 overflow-visible">
       {error && (
-        <div className="p-3 bg-[var(--danger)] text-white rounded-lg text-sm">
+        <div className="p-2 bg-[var(--danger)] text-white rounded text-xs">
           {error}
         </div>
       )}
 
       {/* Transaction status */}
       {txStatus !== 'idle' && (
-        <div className="p-3 bg-[var(--primary-light)] text-[var(--primary)] rounded-lg text-sm flex items-center gap-2">
-          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+        <div className="p-2 bg-[var(--primary-light)] text-[var(--primary)] rounded text-xs flex items-center gap-2">
+          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
@@ -141,172 +150,154 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
         </div>
       )}
 
-      {/* Wallet not connected warning */}
+      {/* Wallet not connected */}
       {!isConnected && (
-        <div className="p-3 bg-[var(--surface-2)] rounded-lg text-sm text-center">
-          <p className="text-[var(--foreground-muted)] mb-2">Connect your wallet to lock real BSV</p>
-          <button
-            type="button"
-            onClick={() => connect()}
-            className="btn btn-primary btn-sm"
-          >
-            Connect Wallet
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => connect()}
+          className="btn btn-primary btn-sm w-full"
+        >
+          Connect Wallet to Lock
+        </button>
       )}
 
-      {/* Amount */}
-      <div>
-        <label className="label">Amount (sats)</label>
-        {/* Quick amount presets */}
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {[
-            { sats: 10000, label: '10K' },
-            { sats: 50000, label: '50K' },
-            { sats: 100000, label: '100K' },
-            { sats: 1000000, label: '1M' },
-            { sats: 10000000, label: '10M' },
-            { sats: 100000000, label: '1 BSV' },
-          ].map(({ sats, label }) => {
-            // Only disable if we have a known positive balance and amount exceeds it
-            // If balance is 0/unknown, allow selection (wallet will reject if truly insufficient)
-            const exceedsBalance = userBalanceSats > 0 && sats > userBalanceSats
-            return (
+      {isConnected && (
+        <>
+          {/* Amount - inline presets */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium text-[var(--foreground-muted)]">Amount</label>
+              {userBalanceSats > 0 && (
+                <span className="text-[10px] text-[var(--foreground-muted)]">
+                  {formatSats(userBalanceSats)} available
+                </span>
+              )}
+            </div>
+            <div className="flex gap-1 mb-1.5">
+              {[
+                { sats: 10000, label: '10K' },
+                { sats: 50000, label: '50K' },
+                { sats: 100000, label: '100K' },
+                { sats: 1000000, label: '1M' },
+              ].map(({ sats, label }) => {
+                const exceedsBalance = userBalanceSats > 0 && sats > userBalanceSats
+                return (
+                  <button
+                    key={sats}
+                    type="button"
+                    onClick={() => setAmountSats(String(sats))}
+                    disabled={exceedsBalance}
+                    className={`flex-1 py-1 text-[10px] rounded border transition-colors ${
+                      parseInt(amountSats) === sats
+                        ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                        : exceedsBalance
+                        ? 'bg-[var(--surface-2)] text-[var(--foreground-muted)] border-[var(--border)] opacity-40'
+                        : 'bg-[var(--surface-2)] text-[var(--foreground-secondary)] border-[var(--border)] hover:border-[var(--primary)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+            <SatsInput
+              value={amountSats}
+              onChange={setAmountSats}
+              max={userBalanceSats}
+              placeholder="Custom sats"
+              className="w-full text-sm"
+            />
+          </div>
+
+          {/* Duration - compact row */}
+          <div>
+            <label className="text-xs font-medium text-[var(--foreground-muted)] mb-1 block">Duration</label>
+            <div className="flex gap-1">
+              {compactDurations.map((preset) => (
+                <button
+                  key={preset.blocks}
+                  type="button"
+                  onClick={() => {
+                    setDurationBlocks(preset.blocks)
+                    setUseCustom(false)
+                  }}
+                  className={`flex-1 py-1.5 text-xs rounded border transition-colors ${
+                    !useCustom && durationBlocks === preset.blocks
+                      ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                      : 'bg-[var(--surface-2)] text-[var(--foreground-secondary)] border-[var(--border)] hover:border-[var(--primary)]'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
               <button
-                key={sats}
                 type="button"
-                onClick={() => setAmountSats(String(sats))}
-                disabled={exceedsBalance}
-                className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
-                  parseInt(amountSats) === sats
+                onClick={() => setUseCustom(!useCustom)}
+                className={`px-2 py-1.5 text-xs rounded border transition-colors ${
+                  useCustom
                     ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
-                    : exceedsBalance
-                    ? 'bg-[var(--surface-2)] text-[var(--foreground-muted)] border-[var(--border)] opacity-50 cursor-not-allowed'
-                    : 'bg-[var(--surface-2)] text-[var(--foreground-secondary)] border-[var(--border)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
+                    : 'bg-[var(--surface-2)] text-[var(--foreground-secondary)] border-[var(--border)] hover:border-[var(--primary)]'
                 }`}
+                title="Custom duration"
               >
-                {label}
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z" />
+                </svg>
               </button>
-            )
-          })}
-        </div>
-        <div>
-          <label className="text-xs text-[var(--foreground-muted)] mb-1 block">Custom amount</label>
-          <SatsInput
-            value={amountSats}
-            onChange={setAmountSats}
-            max={userBalanceSats}
-            placeholder="Enter sats"
-            className="w-full"
-          />
-        </div>
-        <p className="text-xs text-[var(--muted)] mt-1">
-          {isConnected
-            ? userBalanceSats > 0
-              ? `Wallet balance: ${formatSats(userBalanceSats)} sats`
-              : 'Wallet connected (balance check not available)'
-            : 'Connect wallet to lock BSV'
-          }
-        </p>
-      </div>
-
-      {/* Duration */}
-      <div>
-        <label className="label">Lock Duration</label>
-        <div className="grid grid-cols-3 gap-2 mb-2">
-          {LOCK_DURATION_PRESETS.map((preset) => (
-            <button
-              key={preset.blocks}
-              type="button"
-              onClick={() => {
-                setDurationBlocks(preset.blocks)
-                setUseCustom(false)
-              }}
-              className={`p-2 rounded-lg text-sm border-2 transition-colors ${
-                !useCustom && durationBlocks === preset.blocks
-                  ? 'border-[var(--primary)] bg-[var(--primary)] text-white'
-                  : 'border-[var(--card-border)] hover:border-[var(--primary)]'
-              }`}
-            >
-              <div className="font-medium">{preset.label}</div>
-              <div className={`text-xs ${!useCustom && durationBlocks === preset.blocks ? 'text-white opacity-75' : 'text-[var(--muted)]'}`}>
-                {preset.description}
+            </div>
+            {useCustom && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <input
+                  type="number"
+                  value={customBlocks}
+                  onChange={(e) => setCustomBlocks(e.target.value)}
+                  min="1"
+                  max={MAX_LOCK_DURATION_BLOCKS}
+                  className="input flex-1 text-sm py-1"
+                  placeholder="Blocks"
+                />
+                <span className="text-[10px] text-[var(--foreground-muted)] whitespace-nowrap">
+                  {parseInt(customBlocks) > 0 ? blocksToTimeString(parseInt(customBlocks)) : '~10min/block'}
+                </span>
               </div>
+            )}
+            {exceedsMaxDuration && (
+              <p className="text-[10px] text-[var(--danger)] mt-1">Max: 1 year</p>
+            )}
+          </div>
+
+          {/* Tag - compact */}
+          <div className="relative z-10">
+            <label className="text-xs font-medium text-[var(--foreground-muted)] mb-1 block">Tag (optional)</label>
+            <TagInput
+              value={tag}
+              onChange={setTag}
+              placeholder="e.g., quality, funny"
+            />
+          </div>
+
+          {/* Preview + Submit combined */}
+          <div className="pt-1">
+            {satsNum > 0 && actualBlocks > 0 && !exceedsMaxDuration && (
+              <div className="text-center mb-2">
+                <span className="text-xs text-[var(--foreground-muted)]">
+                  {formatSats(satsNum)} × {blocksToTimeString(actualBlocks)} =
+                </span>
+                <span className="text-sm font-semibold text-[var(--accent)] ml-1">
+                  {formatWrootz(wrootzValue)} wrootz
+                </span>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading || satsNum <= 0 || (userBalanceSats > 0 && satsNum > userBalanceSats) || actualBlocks < 1 || exceedsMaxDuration}
+              className="btn btn-primary w-full py-2 text-sm"
+            >
+              {loading ? getStatusMessage() : `Lock ${satsNum > 0 ? formatSats(satsNum) : '0'} sats`}
             </button>
-          ))}
-        </div>
-
-        {/* Custom input */}
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="useCustom"
-            checked={useCustom}
-            onChange={(e) => setUseCustom(e.target.checked)}
-            className="rounded accent-[var(--primary)] flex-shrink-0"
-          />
-          <label htmlFor="useCustom" className="text-sm flex-shrink-0">Custom:</label>
-          <input
-            type="number"
-            value={customBlocks}
-            onChange={(e) => setCustomBlocks(e.target.value)}
-            disabled={!useCustom}
-            min="1"
-            className="input flex-1 min-w-0 disabled:opacity-50"
-            placeholder="Blocks"
-          />
-        </div>
-        {useCustom && parseInt(customBlocks) > 0 && (
-          exceedsMaxDuration ? (
-            <p className="text-xs text-[var(--danger)] mt-1 font-medium">
-              Maximum lock duration is 1 year ({MAX_LOCK_DURATION_BLOCKS.toLocaleString()} blocks)
-            </p>
-          ) : (
-            <p className="text-xs text-[var(--muted)] mt-1">
-              Duration: {blocksToTimeString(parseInt(customBlocks))}
-            </p>
-          )
-        )}
-      </div>
-
-      {/* Tag */}
-      <div className="relative z-10">
-        <label className="label">Tag (optional)</label>
-        <TagInput
-          value={tag}
-          onChange={setTag}
-          placeholder="e.g., quality, funny, informative"
-        />
-        <p className="text-xs text-[var(--muted)] mt-1">
-          One tag per lock. Choose wisely!
-        </p>
-      </div>
-
-      {/* Wrootz Preview - Only show when user has entered values */}
-      {satsNum > 0 && actualBlocks > 0 && (
-        <div className="p-2 rounded-lg text-center bg-[var(--accent-light)] border border-[var(--accent)]">
-          <p className="text-xs text-[var(--accent)]">
-            Locking {formatSats(satsNum)} sats for {blocksToTimeString(actualBlocks)} = <span className="font-semibold">{formatWrootz(wrootzValue)} wrootz</span>
-          </p>
-        </div>
+          </div>
+        </>
       )}
-
-      {/* Submit */}
-      <button
-        type="submit"
-        disabled={loading || !isConnected || satsNum <= 0 || (userBalanceSats > 0 && satsNum > userBalanceSats) || actualBlocks < 1 || exceedsMaxDuration}
-        className="btn btn-primary w-full text-lg py-3"
-      >
-        {loading ? 'Processing...' : isConnected ? `Lock ${formatSats(satsNum)} sats` : 'Connect Wallet to Lock'}
-      </button>
-
-      {/* Real BSV indicator */}
-      <p className="text-xs text-center text-[var(--foreground-muted)]">
-        <span className="inline-flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          Real BSV on mainnet
-        </span>
-      </p>
     </form>
   )
 }
