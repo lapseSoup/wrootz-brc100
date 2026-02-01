@@ -10,9 +10,10 @@ import { useWallet } from './WalletProvider'
 
 interface LockFormProps {
   postId: string
+  ordinalOrigin?: string // The ordinal's origin (txid_vout format, e.g., "abc123...def_0")
 }
 
-export default function LockForm({ postId }: LockFormProps) {
+export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
   const router = useRouter()
   const { isConnected, balance, currentWallet, connect } = useWallet()
 
@@ -64,7 +65,8 @@ export default function LockForm({ postId }: LockFormProps) {
 
     try {
       // Call wallet to create the lock transaction
-      const lockResult = await currentWallet!.lockBSV(sats, blocks)
+      // Pass ordinalOrigin to create an on-chain link between the lock and the content
+      const lockResult = await currentWallet!.lockBSV(sats, blocks, ordinalOrigin)
 
       setTxStatus('broadcasting')
 
@@ -165,23 +167,28 @@ export default function LockForm({ postId }: LockFormProps) {
             { sats: 1000000, label: '1M' },
             { sats: 10000000, label: '10M' },
             { sats: 100000000, label: '1 BSV' },
-          ].map(({ sats, label }) => (
-            <button
-              key={sats}
-              type="button"
-              onClick={() => setAmountSats(String(sats))}
-              disabled={sats > userBalanceSats}
-              className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
-                parseInt(amountSats) === sats
-                  ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
-                  : sats > userBalanceSats
-                  ? 'bg-[var(--surface-2)] text-[var(--foreground-muted)] border-[var(--border)] opacity-50 cursor-not-allowed'
-                  : 'bg-[var(--surface-2)] text-[var(--foreground-secondary)] border-[var(--border)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+          ].map(({ sats, label }) => {
+            // Only disable if we have a known positive balance and amount exceeds it
+            // If balance is 0/unknown, allow selection (wallet will reject if truly insufficient)
+            const exceedsBalance = userBalanceSats > 0 && sats > userBalanceSats
+            return (
+              <button
+                key={sats}
+                type="button"
+                onClick={() => setAmountSats(String(sats))}
+                disabled={exceedsBalance}
+                className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                  parseInt(amountSats) === sats
+                    ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                    : exceedsBalance
+                    ? 'bg-[var(--surface-2)] text-[var(--foreground-muted)] border-[var(--border)] opacity-50 cursor-not-allowed'
+                    : 'bg-[var(--surface-2)] text-[var(--foreground-secondary)] border-[var(--border)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
         <div>
           <label className="text-xs text-[var(--foreground-muted)] mb-1 block">Custom amount</label>
@@ -195,8 +202,10 @@ export default function LockForm({ postId }: LockFormProps) {
         </div>
         <p className="text-xs text-[var(--muted)] mt-1">
           {isConnected
-            ? `Wallet balance: ${formatSats(userBalanceSats)} sats`
-            : 'Connect wallet to see balance'
+            ? userBalanceSats > 0
+              ? `Wallet balance: ${formatSats(userBalanceSats)} sats`
+              : 'Wallet connected (balance check not available)'
+            : 'Connect wallet to lock BSV'
           }
         </p>
       </div>

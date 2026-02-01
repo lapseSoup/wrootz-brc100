@@ -67,7 +67,8 @@ export interface WalletProvider {
   sendBSV(to: string, satoshis: number): Promise<SendResult>
 
   // Locking (time-locked transactions)
-  lockBSV(satoshis: number, blocks: number): Promise<LockResult>
+  // ordinalOrigin is the txid_vout of the ordinal being supported (e.g., "abc123...def_0")
+  lockBSV(satoshis: number, blocks: number, ordinalOrigin?: string): Promise<LockResult>
 
   // Message signing (for authentication)
   signMessage(message: string): Promise<string>

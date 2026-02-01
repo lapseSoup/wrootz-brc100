@@ -294,7 +294,7 @@ export class BRC100WalletAdapter implements WalletProvider {
     }
   }
 
-  async lockBSV(satoshis: number, blocks: number): Promise<LockResult> {
+  async lockBSV(satoshis: number, blocks: number, ordinalOrigin?: string): Promise<LockResult> {
     // Ensure we have a live connection
     const client = await this.ensureConnected()
 
@@ -311,17 +311,43 @@ export class BRC100WalletAdapter implements WalletProvider {
       const lockingScript = this.createCLTVLockingScript(publicKey, unlockBlock)
 
       console.log(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
+      if (ordinalOrigin) {
+        console.log(`Linking to ordinal: ${ordinalOrigin}`)
+      }
+
+      // Build outputs array
+      const outputs: Array<{
+        lockingScript: string
+        satoshis: number
+        outputDescription: string
+        basket?: string
+        tags?: string[]
+      }> = [
+        {
+          lockingScript,
+          satoshis,
+          outputDescription: `Locked until block ${unlockBlock}`,
+          basket: 'wrootz_locks',
+          tags: ['lock', `unlock_${unlockBlock}`, 'wrootz', ...(ordinalOrigin ? [`ordinal_${ordinalOrigin}`] : [])]
+        }
+      ]
+
+      // Add OP_RETURN output with ordinal reference if provided
+      // Format: OP_RETURN "wrootz" "lock" <ordinal_origin>
+      // This creates an on-chain link between the lock and the content it supports
+      if (ordinalOrigin) {
+        const opReturnScript = this.createWrootzOpReturn('lock', ordinalOrigin)
+        outputs.push({
+          lockingScript: opReturnScript,
+          satoshis: 0, // OP_RETURN outputs have 0 satoshis
+          outputDescription: `Wrootz lock reference to ordinal ${ordinalOrigin}`
+        })
+      }
 
       const result = await this.withTimeout(
         client.createAction({
-          description: `Wrootz: Lock ${satoshis} sats for ${blocks} blocks`,
-          outputs: [{
-            lockingScript,
-            satoshis,
-            outputDescription: `Locked until block ${unlockBlock}`,
-            basket: 'wrootz_locks',
-            tags: ['lock', `unlock_${unlockBlock}`, 'wrootz']
-          }],
+          description: `Wrootz: Lock ${satoshis} sats for ${blocks} blocks${ordinalOrigin ? ` → ${ordinalOrigin.slice(0, 8)}...` : ''}`,
+          outputs,
           labels: ['lock', 'wrootz']
         }),
         60000, // 60 second timeout for user to approve
@@ -629,6 +655,23 @@ export class BRC100WalletAdapter implements WalletProvider {
     // <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG
     const lockTimeHex = this.encodeScriptNum(lockTime)
     return lockTimeHex + 'b175' + this.pushData(pubKeyHex) + 'ac'
+  }
+
+  /**
+   * Create an OP_RETURN script for Wrootz protocol data
+   * Format: OP_RETURN OP_FALSE "wrootz" <action> <data>
+   *
+   * This creates an on-chain link between locks and the content they support.
+   * The format allows indexers to discover all locks for a specific ordinal.
+   */
+  private createWrootzOpReturn(action: string, data: string): string {
+    // OP_RETURN (0x6a) followed by OP_FALSE (0x00) to make it a "safe" output
+    // Then push: "wrootz" <action> <data>
+    let script = '6a00' // OP_RETURN OP_FALSE
+    script += this.pushData(Buffer.from('wrootz').toString('hex'))
+    script += this.pushData(Buffer.from(action).toString('hex'))
+    script += this.pushData(Buffer.from(data).toString('hex'))
+    return script
   }
 
   /**

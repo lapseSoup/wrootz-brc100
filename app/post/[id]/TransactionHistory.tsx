@@ -101,7 +101,7 @@ function getTransactionStyle(action: string) {
 
 export default function TransactionHistory({ transactions }: TransactionHistoryProps) {
   return (
-    <div className="space-y-2 max-h-64 overflow-y-auto">
+    <div className="space-y-2">
       {transactions.map((tx) => {
         const style = getTransactionStyle(tx.action)
         return (

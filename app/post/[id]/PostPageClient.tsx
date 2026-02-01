@@ -393,7 +393,10 @@ export default function PostPageClient({
               <div className="section-header">
                 <h3 className="section-title">Add Wrootz</h3>
               </div>
-              <LockForm postId={post.id} />
+              <LockForm
+                postId={post.id}
+                ordinalOrigin={post.inscriptionTxid ? `${post.inscriptionTxid}_0` : undefined}
+              />
             </div>
           ) : null}
 
