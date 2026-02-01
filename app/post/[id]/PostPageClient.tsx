@@ -232,50 +232,6 @@ export default function PostPageClient({
               {post.body}
             </div>
 
-            {/* 1Sat Ordinal Badge */}
-            {post.inscriptionId && (
-              <div className="mt-5 p-4 rounded-lg bg-[var(--surface-2)] border border-[var(--border)]">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-yellow-500 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[var(--foreground-muted)]">1Sat Ordinal</p>
-                    <p className="text-sm font-medium text-[var(--foreground)]">Inscribed on BSV</p>
-                  </div>
-                </div>
-                <div className="space-y-1 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[var(--foreground-muted)]">Inscription ID:</span>
-                    <a
-                      href={`https://1satordinals.com/inscription/${post.inscriptionId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-[var(--primary)] hover:underline truncate max-w-[200px]"
-                      title={post.inscriptionId}
-                    >
-                      {post.inscriptionId.slice(0, 8)}...{post.inscriptionId.slice(-8)}
-                    </a>
-                  </div>
-                  {post.inscriptionTxid && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[var(--foreground-muted)]">Transaction:</span>
-                      <a
-                        href={`https://whatsonchain.com/tx/${post.inscriptionTxid}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-mono text-[var(--primary)] hover:underline truncate max-w-[200px]"
-                        title={post.inscriptionTxid}
-                      >
-                        {post.inscriptionTxid.slice(0, 8)}...{post.inscriptionTxid.slice(-8)}
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* Meta footer */}
             <div className="mt-6 pt-5 border-t border-[var(--border)] flex flex-wrap items-center gap-6 text-sm">
@@ -306,7 +262,22 @@ export default function PostPageClient({
               <div className="flex items-center gap-6 ml-auto">
                 <div className="text-right">
                   <p className="text-xs text-[var(--foreground-muted)]">Posted</p>
-                  <p className="font-medium">{formatRelativeTime(new Date(post.createdAt))}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-medium">{formatRelativeTime(new Date(post.createdAt))}</p>
+                    {post.inscriptionTxid && (
+                      <a
+                        href={`https://whatsonchain.com/tx/${post.inscriptionTxid}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--foreground-muted)] hover:text-[var(--primary)] transition-colors"
+                        title="View on blockchain"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                      </a>
+                    )}
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-[var(--foreground-muted)]">Locker Share</p>
