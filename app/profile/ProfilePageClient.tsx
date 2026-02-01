@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { formatSats, bsvToSats, formatWrootz, blocksToTimeString } from '@/app/lib/constants'
 import Link from 'next/link'
 import { logout } from '@/app/actions/auth'
+import MyLocks from '@/app/components/MyLocks'
 
 interface User {
   id: string
@@ -178,7 +179,10 @@ export default function ProfilePageClient({
         )}
       </div>
 
-      {/* Active Locks */}
+      {/* On-Chain Wallet Locks (BRC-100) */}
+      <MyLocks />
+
+      {/* Active Locks (Database) */}
       <div className="card">
         <h2 className="font-semibold text-lg mb-4">My Active Locks ({activeLocks.length})</h2>
         {activeLocks.length === 0 ? (

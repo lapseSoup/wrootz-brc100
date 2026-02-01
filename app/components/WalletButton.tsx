@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import { useWallet } from './WalletProvider'
 import { formatSats } from '@/app/lib/constants'
 
@@ -14,32 +13,20 @@ export default function WalletButton() {
     error,
     connect,
     disconnect,
-    availableWallets,
     refreshBalance,
-    currentWallet,
-    type: walletType
+    availableWallets
   } = useWallet()
 
   const [showDropdown, setShowDropdown] = useState(false)
   const [showWalletSelect, setShowWalletSelect] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
-  const [showSendModal, setShowSendModal] = useState(false)
-  const [sendTo, setSendTo] = useState('')
-  const [sendAmount, setSendAmount] = useState('')
-  const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState<string | null>(null)
-  const [sendSuccess, setSendSuccess] = useState<string | null>(null)
-  const [mounted, setMounted] = useState(false)
+  const [copied, setCopied] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  const handleConnect = async (type?: 'brc100' | 'yours') => {
+  const handleConnect = async () => {
     setConnectError(null)
 
     try {
-      await connect(type || 'brc100')
+      await connect('brc100')
       setShowWalletSelect(false)
     } catch (e) {
       console.error('Failed to connect wallet:', e)
@@ -49,40 +36,21 @@ export default function WalletButton() {
 
   const truncateAddress = (addr: string) => {
     // For BRC-100, the address is a public key (66 chars hex)
-    // Show more characters since it's longer
     if (addr.length > 20) {
       return `${addr.slice(0, 8)}...${addr.slice(-6)}`
     }
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`
   }
 
-  const handleSendBSV = async () => {
-    if (!sendTo || !sendAmount || !currentWallet) return
-
-    const satoshis = parseInt(sendAmount)
-    if (isNaN(satoshis) || satoshis <= 0) {
-      setSendError('Invalid amount')
-      return
-    }
-
-    setSending(true)
-    setSendError(null)
-    setSendSuccess(null)
-
-    try {
-      const result = await currentWallet.sendBSV(sendTo, satoshis)
-      setSendSuccess(`Sent! TX: ${result.txid.slice(0, 8)}...`)
-      setSendTo('')
-      setSendAmount('')
-      refreshBalance()
-    } catch (err) {
-      setSendError(err instanceof Error ? err.message : 'Failed to send')
-    } finally {
-      setSending(false)
+  const handleCopyIdentityKey = () => {
+    if (address) {
+      navigator.clipboard.writeText(address)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     }
   }
 
-  // Connected state - show balance and dropdown
+  // Connected state - show balance only
   if (isConnected && address) {
     return (
       <div className="relative">
@@ -90,14 +58,12 @@ export default function WalletButton() {
           onClick={() => setShowDropdown(!showDropdown)}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--surface-2)] hover:bg-[var(--surface-3)] transition-colors"
         >
-          {/* Wallet icon */}
-          <svg className="w-4 h-4 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-          </svg>
+          {/* Connected indicator */}
+          <div className="w-2 h-2 rounded-full bg-[var(--success)]" />
 
           {/* Balance */}
-          <span className="font-medium text-sm">
-            {balance ? formatSats(balance.satoshis) : '...'} sats
+          <span className="text-sm font-medium">
+            {balance ? formatSats(balance.satoshis) : '0'} <span className="text-[var(--foreground-muted)]">sats</span>
           </span>
 
           {/* Dropdown arrow */}
@@ -110,69 +76,61 @@ export default function WalletButton() {
         {showDropdown && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-            <div className="absolute right-0 mt-2 w-64 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-lg z-50 py-2">
+            <div className="absolute right-0 mt-2 w-72 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-lg z-50 py-2">
               {/* Wallet Type Badge */}
               <div className="px-4 py-2 border-b border-[var(--border)]">
                 <div className="flex items-center gap-2">
                   <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--primary)]/20 text-[var(--primary)]">
-                    {walletType === 'brc100' ? 'BRC-100' : walletType === 'yours' ? 'Yours' : 'Wallet'}
+                    BRC-100
                   </span>
+                  <span className="text-xs text-[var(--success)]">Connected</span>
                 </div>
               </div>
 
-              {/* Address */}
-              <div className="px-4 py-2 border-b border-[var(--border)]">
-                <p className="text-xs text-[var(--foreground-muted)]">Identity Key</p>
-                <p className="font-mono text-sm">{truncateAddress(address)}</p>
-              </div>
-
-              {/* Balance details */}
-              <div className="px-4 py-2 border-b border-[var(--border)]">
+              {/* Balance */}
+              <div className="px-4 py-3 border-b border-[var(--border)]">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-[var(--foreground-muted)]">Balance</p>
+                  <div>
+                    <p className="text-xs text-[var(--foreground-muted)] mb-1">Balance</p>
+                    <p className="text-lg font-bold text-[var(--accent)]">
+                      {balance ? formatSats(balance.satoshis) : '0'} sats
+                    </p>
+                    {balance && balance.satoshis > 0 && (
+                      <p className="text-xs text-[var(--foreground-muted)]">
+                        {balance.bsv.toFixed(8)} BSV
+                      </p>
+                    )}
+                  </div>
                   <button
-                    onClick={() => refreshBalance()}
-                    className="text-xs text-[var(--primary)] hover:underline"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      refreshBalance()
+                    }}
+                    className="p-2 hover:bg-[var(--surface-2)] rounded-lg transition-colors"
+                    title="Refresh balance"
                   >
-                    Refresh
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
                   </button>
                 </div>
-                <p className="font-semibold">
-                  {balance ? formatSats(balance.satoshis) : '0'} sats
-                </p>
-                {balance?.usd && (
-                  <p className="text-xs text-[var(--foreground-muted)]">
-                    ~${balance.usd.toFixed(2)} USD
-                  </p>
-                )}
+              </div>
+
+              {/* Identity Key */}
+              <div className="px-4 py-3 border-b border-[var(--border)]">
+                <p className="text-xs text-[var(--foreground-muted)] mb-1">Identity Key</p>
+                <p className="font-mono text-xs break-all select-all">{address}</p>
               </div>
 
               {/* Copy Identity Key */}
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(address)
-                  // Could add a toast notification here
-                }}
+                onClick={handleCopyIdentityKey}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
-                Copy Identity Key
-              </button>
-
-              {/* Send BSV */}
-              <button
-                onClick={() => {
-                  setShowDropdown(false)
-                  setShowSendModal(true)
-                }}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-                Send BSV
+                {copied ? 'Copied!' : 'Copy Identity Key'}
               </button>
 
               {/* Disconnect */}
@@ -187,67 +145,6 @@ export default function WalletButton() {
               </button>
             </div>
           </>
-        )}
-
-        {/* Send BSV Modal - rendered via portal to escape header stacking context */}
-        {mounted && showSendModal && createPortal(
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setShowSendModal(false)} />
-            <div className="relative w-96 max-w-[90vw] bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Send BSV</h3>
-                <button onClick={() => setShowSendModal(false)} className="text-[var(--foreground-muted)] hover:text-[var(--foreground)]">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-[var(--foreground-muted)] mb-1">Recipient Address</label>
-                  <input
-                    type="text"
-                    value={sendTo}
-                    onChange={(e) => setSendTo(e.target.value)}
-                    placeholder="1ABC... (BSV address)"
-                    className="w-full px-3 py-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-lg text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-[var(--foreground-muted)] mb-1">Amount (satoshis)</label>
-                  <input
-                    type="number"
-                    value={sendAmount}
-                    onChange={(e) => setSendAmount(e.target.value)}
-                    placeholder="1000"
-                    className="w-full px-3 py-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-lg text-sm"
-                  />
-                  <p className="text-xs text-[var(--foreground-muted)] mt-1">
-                    Available: {balance ? formatSats(balance.satoshis) : '0'} sats
-                  </p>
-                </div>
-
-                {sendError && (
-                  <p className="text-sm text-[var(--danger)]">{sendError}</p>
-                )}
-
-                {sendSuccess && (
-                  <p className="text-sm text-[var(--success)]">{sendSuccess}</p>
-                )}
-
-                <button
-                  onClick={handleSendBSV}
-                  disabled={sending || !sendTo || !sendAmount}
-                  className="w-full py-2 bg-[var(--primary)] text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {sending ? 'Sending...' : 'Send'}
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
         )}
       </div>
     )
@@ -275,7 +172,7 @@ export default function WalletButton() {
           className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
           Connect Wallet
         </button>
@@ -286,13 +183,13 @@ export default function WalletButton() {
             <div className="fixed inset-0 z-40" onClick={() => setShowWalletSelect(false)} />
             <div className="absolute right-0 mt-2 w-80 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-lg z-50 py-2">
               <p className="px-4 py-2 text-sm font-semibold border-b border-[var(--border)]">
-                Select Wallet
+                Connect Wallet
               </p>
 
               {availableWallets.map((wallet) => (
                 <button
                   key={wallet.type}
-                  onClick={() => wallet.installed && handleConnect(wallet.type as 'brc100' | 'yours')}
+                  onClick={() => wallet.installed && handleConnect()}
                   disabled={!wallet.installed}
                   className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-2)] transition-colors flex items-center gap-3 ${
                     !wallet.installed ? 'opacity-50 cursor-not-allowed' : ''
@@ -300,17 +197,9 @@ export default function WalletButton() {
                 >
                   {/* Wallet icon */}
                   <div className="w-10 h-10 rounded-full bg-[var(--surface-2)] flex items-center justify-center">
-                    {wallet.type === 'brc100' ? (
-                      <svg className="w-5 h-5 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                    ) : wallet.type === 'yours' ? (
-                      <span className="text-lg font-bold">Y</span>
-                    ) : (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                      </svg>
-                    )}
+                    <svg className="w-5 h-5 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
                   </div>
 
                   <div className="flex-1">
@@ -332,12 +221,24 @@ export default function WalletButton() {
                 <p className="text-xs text-[var(--foreground-muted)]">
                   BRC-100 wallets include: Metanet Desktop, SPV Wallet Extension
                 </p>
+                <div className="mt-2 flex gap-2">
+                  <a
+                    href="https://github.com/bsv-blockchain/metanet-desktop/releases"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-[var(--primary)] hover:underline"
+                  >
+                    Download Metanet Desktop →
+                  </a>
+                </div>
               </div>
 
               {(error || connectError) && (
-                <p className="px-4 py-2 text-xs text-[var(--danger)] border-t border-[var(--border)]">
-                  {error || connectError}
-                </p>
+                <div className="px-4 py-2 border-t border-[var(--border)] bg-[var(--danger)]/10">
+                  <p className="text-xs text-[var(--danger)] whitespace-pre-wrap">
+                    {error || connectError}
+                  </p>
+                </div>
               )}
             </div>
           </>

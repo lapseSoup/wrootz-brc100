@@ -33,44 +33,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
 
   const [currentWallet, setCurrentWallet] = useState<WalletProviderInterface | null>(null)
   const [availableWallets, setAvailableWallets] = useState<{ type: WalletType; name: string; installed: boolean; description?: string }[]>([])
-
-  // Check available wallets on mount
-  useEffect(() => {
-    // Check immediately
-    setAvailableWallets(getAvailableWallets())
-
-    // Check if we have a saved wallet preference
-    const savedType = localStorage.getItem('walletType') as WalletType | null
-    if (savedType && savedType !== 'none') {
-      // Try to reconnect to saved wallet
-      const adapter = getWalletAdapter(savedType)
-      if (adapter && adapter.isInstalled()) {
-        // Don't auto-connect, but remember the preference
-        setState(prev => ({ ...prev, type: savedType }))
-      }
-    }
-
-    // Recheck after delays for slow-loading extensions
-    const timer1 = setTimeout(() => {
-      setAvailableWallets(getAvailableWallets())
-    }, 500)
-
-    const timer2 = setTimeout(() => {
-      setAvailableWallets(getAvailableWallets())
-    }, 1500)
-
-    // Listen for Yours Wallet ready event
-    const handleYoursReady = () => {
-      setAvailableWallets(getAvailableWallets())
-    }
-    window.addEventListener('yours#initialized', handleYoursReady)
-
-    return () => {
-      clearTimeout(timer1)
-      clearTimeout(timer2)
-      window.removeEventListener('yours#initialized', handleYoursReady)
-    }
-  }, [])
+  const autoConnectAttempted = useRef(false)
 
   const connect = useCallback(async (type?: WalletType): Promise<string> => {
     const walletType = type || detectPreferredWallet()
@@ -137,6 +100,28 @@ export function WalletProvider({ children }: WalletProviderProps) {
       throw error
     }
   }, [])
+
+  // Check available wallets and auto-reconnect on mount
+  useEffect(() => {
+    // Check immediately
+    setAvailableWallets(getAvailableWallets())
+
+    // Auto-reconnect if we have a saved wallet preference
+    const savedType = localStorage.getItem('walletType') as WalletType | null
+    const savedAddress = localStorage.getItem('brc100_identity_key')
+
+    if (savedType && savedType !== 'none' && savedAddress && !autoConnectAttempted.current) {
+      autoConnectAttempted.current = true
+
+      // Auto-connect silently in the background
+      console.log('Auto-reconnecting to saved wallet...')
+      connect(savedType).catch(err => {
+        console.warn('Auto-reconnect failed:', err)
+        // Clear saved state if auto-connect fails
+        localStorage.removeItem('walletType')
+      })
+    }
+  }, [connect])
 
   const disconnect = useCallback(async () => {
     if (currentWallet) {

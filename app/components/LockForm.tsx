@@ -52,7 +52,9 @@ export default function LockForm({ postId }: LockFormProps) {
       return
     }
 
-    if (sats > userBalanceSats) {
+    // Note: Balance check is advisory - wallet will reject if truly insufficient
+    // We allow proceeding even if balance shows 0 since balance retrieval may fail
+    if (userBalanceSats > 0 && sats > userBalanceSats) {
       setError('Insufficient balance')
       return
     }
@@ -283,7 +285,7 @@ export default function LockForm({ postId }: LockFormProps) {
       {/* Submit */}
       <button
         type="submit"
-        disabled={loading || !isConnected || satsNum <= 0 || satsNum > userBalanceSats || actualBlocks < 1 || exceedsMaxDuration}
+        disabled={loading || !isConnected || satsNum <= 0 || (userBalanceSats > 0 && satsNum > userBalanceSats) || actualBlocks < 1 || exceedsMaxDuration}
         className="btn btn-primary w-full text-lg py-3"
       >
         {loading ? 'Processing...' : isConnected ? `Lock ${formatSats(satsNum)} sats` : 'Connect Wallet to Lock'}

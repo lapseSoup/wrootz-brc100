@@ -13,6 +13,22 @@ export interface LockResult {
   unlockBlock: number    // Block height when lock expires
 }
 
+export interface LockedOutput {
+  outpoint: string       // txid_vout format
+  txid: string
+  vout: number
+  satoshis: number
+  unlockBlock: number    // Block height when lock expires
+  tags: string[]
+  spendable: boolean     // Whether the lock has expired and is spendable
+  blocksRemaining: number // Blocks until unlock (0 if unlocked)
+}
+
+export interface UnlockResult {
+  txid: string           // Transaction ID of the unlock
+  amount: number         // Amount unlocked in satoshis
+}
+
 export interface SendResult {
   txid: string
   amount: number // Amount sent in satoshis
@@ -62,9 +78,14 @@ export interface WalletProvider {
   // Events
   onAccountChange(callback: (address: string) => void): void
   onDisconnect(callback: () => void): void
+
+  // BRC-100 specific (optional)
+  listLocks?(): Promise<LockedOutput[]>
+  unlockBSV?(outpoint: string): Promise<UnlockResult>
+  getBlockHeight?(): Promise<number>
 }
 
-export type WalletType = 'yours' | 'shuallet' | 'brc100' | 'none'
+export type WalletType = 'brc100' | 'none'
 
 export interface WalletState {
   type: WalletType
