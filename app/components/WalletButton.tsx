@@ -19,11 +19,11 @@ export default function WalletButton() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const handleConnect = async () => {
+  const handleConnect = async (walletType: 'brc100' | 'simplysats') => {
     setConnectError(null)
 
     try {
-      await connect('brc100')
+      await connect(walletType)
       setShowWalletSelect(false)
     } catch (e) {
       console.error('Failed to connect wallet:', e)
@@ -156,7 +156,7 @@ export default function WalletButton() {
               {availableWallets.map((wallet) => (
                 <button
                   key={wallet.type}
-                  onClick={() => wallet.installed && handleConnect()}
+                  onClick={() => wallet.installed && handleConnect(wallet.type as 'brc100' | 'simplysats')}
                   disabled={!wallet.installed}
                   className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-2)] transition-colors flex items-center gap-3 ${
                     !wallet.installed ? 'opacity-50 cursor-not-allowed' : ''

@@ -2,16 +2,10 @@
  * Simply Sats Wallet Adapter
  *
  * Connects to the Simply Sats desktop wallet via HTTP on port 3322.
- * Simply Sats implements the BRC-100 JSON-API protocol.
- *
- * Simply Sats is a lightweight BRC-100 wallet that supports:
- * - Identity key for authentication
- * - Standard P2PKH addresses for payments
- * - Message signing
- * - Time-locked outputs for content support
+ * Simply Sats implements the BRC-100 HTTP-JSON protocol (same as Metanet Desktop).
  */
 
-import { WalletClient } from '@bsv/sdk'
+import { Hash } from '@bsv/sdk'
 import type { WalletProvider, WalletBalance, SendResult, LockResult, InscriptionData, InscriptionResult, LockedOutput, UnlockResult } from './types'
 
 // Connection timeout in milliseconds
@@ -24,8 +18,8 @@ export class SimplySatsAdapter implements WalletProvider {
   name = 'Simply Sats'
   icon = '/wallets/simplysats.png'
 
-  private walletClient: WalletClient | null = null
   private _isConnected = false
+  private identityKey: string | null = null
   private accountChangeCallbacks: ((address: string) => void)[] = []
   private disconnectCallbacks: (() => void)[] = []
 
@@ -34,9 +28,31 @@ export class SimplySatsAdapter implements WalletProvider {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('simplysats_identity_key')
       if (stored) {
+        this.identityKey = stored
         this._isConnected = true
       }
     }
+  }
+
+  /**
+   * Make an HTTP API call to Simply Sats
+   */
+  private async api<T>(method: string, args: any = {}): Promise<T> {
+    const response = await fetch(`${SIMPLY_SATS_URL}/${method}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(args)
+    })
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.message || `HTTP error ${response.status}`)
+    }
+
+    return await response.json()
   }
 
   /**
@@ -63,32 +79,6 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   /**
-   * Ensure wallet is connected, reconnect if needed
-   */
-  private async ensureConnected(): Promise<WalletClient> {
-    if (this.walletClient && this._isConnected) {
-      // Test if connection is still alive
-      try {
-        await this.withTimeout(
-          this.walletClient.isAuthenticated(),
-          5000,
-          'Connection check timed out'
-        )
-        return this.walletClient
-      } catch (error) {
-        console.warn('Simply Sats connection stale, reconnecting...', error)
-      }
-    }
-
-    // Reconnect
-    console.log('Reconnecting to Simply Sats...')
-    this.walletClient = new WalletClient(SIMPLY_SATS_URL as 'XDM')
-    await this.walletClient.connectToSubstrate()
-    await this.walletClient.waitForAuthentication()
-    return this.walletClient
-  }
-
-  /**
    * Connect to Simply Sats wallet via HTTP
    */
   async connect(): Promise<string> {
@@ -99,35 +89,37 @@ export class SimplySatsAdapter implements WalletProvider {
     try {
       console.log('Connecting to Simply Sats via HTTP...')
 
-      // Create WalletClient with HTTP substrate
-      this.walletClient = new WalletClient(SIMPLY_SATS_URL as 'XDM')
-
-      // Connect to the wallet with timeout
-      await this.withTimeout(
-        this.walletClient.connectToSubstrate(),
+      // Test connection with getVersion
+      const versionResult = await this.withTimeout(
+        this.api<{ version: string }>('getVersion'),
         CONNECTION_TIMEOUT,
         'Connection to Simply Sats timed out. Make sure Simply Sats is running.'
       )
+      console.log('Simply Sats version:', versionResult.version)
 
-      // Wait for user to authenticate in their wallet with timeout
+      // Wait for authentication
       await this.withTimeout(
-        this.walletClient.waitForAuthentication(),
-        CONNECTION_TIMEOUT * 3, // Give more time for user to authenticate
-        'Authentication timed out. Please approve the connection in Simply Sats.'
+        this.api<{ authenticated: boolean }>('waitForAuthentication'),
+        CONNECTION_TIMEOUT,
+        'Authentication check timed out.'
       )
 
       // Get the user's identity public key
-      const { publicKey } = await this.walletClient.getPublicKey({ identityKey: true })
+      const { publicKey } = await this.withTimeout(
+        this.api<{ publicKey: string }>('getPublicKey', { identityKey: true }),
+        CONNECTION_TIMEOUT * 3, // Give more time for user to approve
+        'Getting public key timed out. Please approve the request in Simply Sats.'
+      )
 
       // Store the connection state
       this._isConnected = true
+      this.identityKey = publicKey
       localStorage.setItem('simplysats_identity_key', publicKey)
 
-      console.log('Connected to Simply Sats')
+      console.log('Connected to Simply Sats, identity key:', publicKey.slice(0, 16) + '...')
       return publicKey
     } catch (error) {
       console.error('Failed to connect to Simply Sats:', error)
-      this.walletClient = null
 
       // Provide helpful error message
       const errorMessage = error instanceof Error ? error.message : 'Connection failed'
@@ -137,7 +129,7 @@ export class SimplySatsAdapter implements WalletProvider {
           'Could not connect to Simply Sats. Please make sure:\n\n' +
           '1. Simply Sats is installed and running\n' +
           '2. You have a wallet set up in Simply Sats\n\n' +
-          'Download Simply Sats at: https://github.com/example/simply-sats/releases'
+          'Download Simply Sats from the releases page.'
         )
       }
 
@@ -147,7 +139,7 @@ export class SimplySatsAdapter implements WalletProvider {
 
   async disconnect(): Promise<void> {
     this._isConnected = false
-    this.walletClient = null
+    this.identityKey = null
     if (typeof window !== 'undefined') {
       localStorage.removeItem('simplysats_identity_key')
     }
@@ -155,39 +147,22 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async getAddress(): Promise<string> {
-    const stored = typeof window !== 'undefined'
-      ? localStorage.getItem('simplysats_identity_key')
-      : null
+    if (this.identityKey) return this.identityKey
 
-    if (stored) return stored
-
-    if (!this.walletClient) {
-      throw new Error('Wallet not connected')
-    }
-
-    const { publicKey } = await this.walletClient.getPublicKey({ identityKey: true })
+    const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
     return publicKey
   }
 
   async getBalance(): Promise<WalletBalance> {
     try {
-      const client = await this.ensureConnected()
+      const result = await this.api<{ outputs: Array<{ satoshis: number; spendable?: boolean }> }>('listOutputs', {
+        basket: 'default',
+        limit: 10000
+      })
 
-      // Try to get balance from default basket
-      let totalSatoshis = 0
-
-      try {
-        const result = await client.listOutputs({
-          basket: 'default',
-          limit: 10000
-        })
-        const outputs = result.outputs || []
-        totalSatoshis = outputs
-          .filter((o) => o.spendable !== false)
-          .reduce((sum: number, o) => sum + (o.satoshis || 0), 0)
-      } catch {
-        console.log('Could not get balance from Simply Sats')
-      }
+      const totalSatoshis = (result.outputs || [])
+        .filter(o => o.spendable !== false)
+        .reduce((sum, o) => sum + (o.satoshis || 0), 0)
 
       return {
         bsv: totalSatoshis / 100_000_000,
@@ -201,18 +176,12 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async getPubKey(): Promise<string> {
-    if (!this.walletClient) {
-      throw new Error('Wallet not connected')
-    }
-
-    const { publicKey } = await this.walletClient.getPublicKey({ identityKey: true })
+    const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
     return publicKey
   }
 
   async sendBSV(to: string, satoshis: number): Promise<SendResult> {
-    const client = await this.ensureConnected()
-
-    const result = await client.createAction({
+    const result = await this.api<{ txid: string }>('createAction', {
       description: 'Send BSV payment',
       outputs: [{
         lockingScript: this.createP2PKHLockingScript(to),
@@ -233,23 +202,18 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async lockBSV(satoshis: number, blocks: number, ordinalOrigin?: string): Promise<LockResult> {
-    const client = await this.ensureConnected()
-
     try {
       // Get current block height
-      const { height: currentHeight } = await client.getHeight()
+      const { height: currentHeight } = await this.api<{ height: number }>('getHeight')
       const unlockBlock = currentHeight + blocks
 
       // Get user's public key for the lock
-      const { publicKey } = await client.getPublicKey({ identityKey: true })
+      const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
 
       // Create a time-locked output using OP_CHECKLOCKTIMEVERIFY (CLTV)
       const lockingScript = this.createCLTVLockingScript(publicKey, unlockBlock)
 
       console.log(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
-      if (ordinalOrigin) {
-        console.log(`Linking to ordinal: ${ordinalOrigin}`)
-      }
 
       // Build outputs array
       const outputs: Array<{
@@ -279,7 +243,7 @@ export class SimplySatsAdapter implements WalletProvider {
       }
 
       const result = await this.withTimeout(
-        client.createAction({
+        this.api<{ txid: string }>('createAction', {
           description: `Wrootz: Lock ${satoshis} sats for ${blocks} blocks${ordinalOrigin ? ` → ${ordinalOrigin.slice(0, 8)}...` : ''}`,
           outputs,
           labels: ['lock', 'wrootz']
@@ -305,9 +269,6 @@ export class SimplySatsAdapter implements WalletProvider {
         if (error.message.includes('Failed to fetch')) {
           throw new Error('Lost connection to Simply Sats. Please try again or reconnect your wallet.')
         }
-        if (error.message.includes('rejected') || error.message.includes('denied')) {
-          throw new Error('Transaction was rejected in the wallet.')
-        }
         throw error
       }
       throw new Error('Lock failed: Unknown error')
@@ -315,12 +276,10 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async listLocks(): Promise<LockedOutput[]> {
-    const client = await this.ensureConnected()
-
     try {
-      const { height: currentHeight } = await client.getHeight()
+      const { height: currentHeight } = await this.api<{ height: number }>('getHeight')
 
-      const result = await client.listOutputs({
+      const result = await this.api<{ outputs: Array<{ outpoint: string; satoshis: number; tags?: string[]; spendable?: boolean }> }>('listOutputs', {
         basket: 'wrootz_locks',
         limit: 1000,
         includeTags: true
@@ -352,9 +311,6 @@ export class SimplySatsAdapter implements WalletProvider {
       }
 
       locks.sort((a, b) => a.unlockBlock - b.unlockBlock)
-
-      console.log(`Found ${locks.length} locked outputs, ${locks.filter(l => l.spendable).length} are unlockable`)
-
       return locks
     } catch (error) {
       console.error('Failed to list locks:', error)
@@ -363,10 +319,8 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async unlockBSV(outpoint: string): Promise<UnlockResult> {
-    const client = await this.ensureConnected()
-
     try {
-      const { height: currentHeight } = await client.getHeight()
+      const { height: currentHeight } = await this.api<{ height: number }>('getHeight')
       const locks = await this.listLocks()
       const lock = locks.find(l => l.outpoint === outpoint)
 
@@ -375,13 +329,15 @@ export class SimplySatsAdapter implements WalletProvider {
       }
 
       if (!lock.spendable) {
-        throw new Error(`Lock is not yet spendable. ${lock.blocksRemaining} blocks remaining (unlocks at block ${lock.unlockBlock})`)
+        throw new Error(`Lock is not yet spendable. ${lock.blocksRemaining} blocks remaining`)
       }
 
-      console.log(`Unlocking ${lock.satoshis} sats from outpoint ${outpoint}`)
+      const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
+      const pubKeyHashHex = this.hash160(publicKey)
+      const p2pkhScript = '76a914' + pubKeyHashHex + '88ac'
 
       const result = await this.withTimeout(
-        client.createAction({
+        this.api<{ txid: string }>('createAction', {
           description: `Wrootz: Unlock ${lock.satoshis} sats`,
           inputs: [{
             outpoint,
@@ -390,7 +346,7 @@ export class SimplySatsAdapter implements WalletProvider {
             sequenceNumber: 0xfffffffe
           }],
           outputs: [{
-            lockingScript: await this.createP2PKHFromIdentity(),
+            lockingScript: p2pkhScript,
             satoshis: lock.satoshis - 1,
             outputDescription: 'Unlocked funds',
             basket: 'default'
@@ -399,14 +355,12 @@ export class SimplySatsAdapter implements WalletProvider {
           labels: ['unlock', 'wrootz']
         }),
         60000,
-        'Unlock transaction timed out. Please approve the transaction in Simply Sats.'
+        'Unlock transaction timed out.'
       )
 
       if (!result.txid) {
-        throw new Error('Unlock transaction failed - no txid returned')
+        throw new Error('Unlock transaction failed')
       }
-
-      console.log('Unlock successful:', result.txid)
 
       return {
         txid: result.txid,
@@ -414,9 +368,6 @@ export class SimplySatsAdapter implements WalletProvider {
       }
     } catch (error) {
       if (error instanceof Error) {
-        if (error.message.includes('Failed to fetch')) {
-          throw new Error('Lost connection to Simply Sats. Please try again or reconnect your wallet.')
-        }
         throw error
       }
       throw new Error('Unlock failed: Unknown error')
@@ -424,11 +375,9 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async signMessage(message: string): Promise<string> {
-    const client = await this.ensureConnected()
-
     const messageBytes = new TextEncoder().encode(message)
 
-    const { signature } = await client.createSignature({
+    const { signature } = await this.api<{ signature: number[] }>('createSignature', {
       data: Array.from(messageBytes),
       protocolID: [0, 'wrootz signing'],
       keyID: '1'
@@ -438,7 +387,97 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async inscribe(data: InscriptionData): Promise<InscriptionResult> {
-    throw new Error('Inscriptions not yet supported via Simply Sats.')
+    try {
+      // Get user's public key for the inscription output
+      const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
+
+      // Build the 1Sat Ordinals inscription script
+      const inscriptionScript = this.buildInscriptionScript(
+        data.base64Data,
+        data.mimeType,
+        publicKey,
+        data.map
+      )
+
+      console.log('Creating inscription via Simply Sats, script length:', inscriptionScript.length)
+
+      const result = await this.withTimeout(
+        this.api<{ txid: string }>('createAction', {
+          description: `Wrootz: Create post "${data.map?.title || 'Post'}"`,
+          outputs: [{
+            lockingScript: inscriptionScript,
+            satoshis: 1, // 1Sat ordinal
+            outputDescription: 'Ordinal inscription',
+            basket: 'wrootz_ordinals',
+            tags: ['inscription', 'ordinal', 'wrootz']
+          }],
+          labels: ['inscription', 'wrootz']
+        }),
+        60000,
+        'Inscription timed out. Please approve the transaction in Simply Sats.'
+      )
+
+      if (!result.txid) {
+        throw new Error('Inscription creation failed - no txid returned')
+      }
+
+      console.log('Inscription created:', result.txid)
+
+      return {
+        txid: result.txid,
+        origin: `${result.txid}_0`
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch')) {
+          throw new Error('Lost connection to Simply Sats. Please try again or reconnect.')
+        }
+        if (error.message.includes('rejected') || error.message.includes('denied')) {
+          throw new Error('Inscription was rejected in Simply Sats.')
+        }
+        throw error
+      }
+      throw new Error('Inscription failed: Unknown error')
+    }
+  }
+
+  /**
+   * Build a 1Sat Ordinals inscription script
+   */
+  private buildInscriptionScript(
+    base64Data: string,
+    mimeType: string,
+    pubKeyHex: string,
+    map?: Record<string, string>
+  ): string {
+    // 1Sat Ordinals inscription format:
+    // OP_FALSE OP_IF "ord" OP_1 <content-type> OP_0 <data> OP_ENDIF <p2pkh>
+
+    const dataBytes = Buffer.from(base64Data, 'base64')
+    const mimeTypeBytes = Buffer.from(mimeType, 'utf8')
+
+    let script = '0063' // OP_FALSE OP_IF
+    script += this.pushData(Buffer.from('ord').toString('hex')) // "ord"
+    script += '51' // OP_1
+    script += this.pushData(mimeTypeBytes.toString('hex')) // content-type
+    script += '00' // OP_0
+    script += this.pushData(dataBytes.toString('hex')) // data
+
+    // Add optional MAP data if provided
+    if (map && Object.keys(map).length > 0) {
+      for (const [key, value] of Object.entries(map)) {
+        script += this.pushData(Buffer.from(key).toString('hex'))
+        script += this.pushData(Buffer.from(value).toString('hex'))
+      }
+    }
+
+    script += '68' // OP_ENDIF
+
+    // Add P2PKH for the recipient
+    const pubKeyHashHex = this.hash160(pubKeyHex)
+    script += '76a914' + pubKeyHashHex + '88ac'
+
+    return script
   }
 
   onAccountChange(callback: (address: string) => void): void {
@@ -450,13 +489,13 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async getNetwork(): Promise<'mainnet' | 'testnet'> {
-    return 'mainnet'
+    const { network } = await this.api<{ network: string }>('getNetwork')
+    return network as 'mainnet' | 'testnet'
   }
 
   async getBlockHeight(): Promise<number> {
     try {
-      const client = await this.ensureConnected()
-      const { height } = await client.getHeight()
+      const { height } = await this.api<{ height: number }>('getHeight')
       return height
     } catch {
       // Fallback to WhatsOnChain
@@ -476,13 +515,6 @@ export class SimplySatsAdapter implements WalletProvider {
     const decoded = this.decodeBase58Check(address)
     const pubKeyHash = decoded.slice(1)
     const pubKeyHashHex = Buffer.from(pubKeyHash).toString('hex')
-    return '76a914' + pubKeyHashHex + '88ac'
-  }
-
-  private async createP2PKHFromIdentity(): Promise<string> {
-    const client = await this.ensureConnected()
-    const { publicKey } = await client.getPublicKey({ identityKey: true })
-    const pubKeyHashHex = this.hash160(publicKey)
     return '76a914' + pubKeyHashHex + '88ac'
   }
 
@@ -556,9 +588,17 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   private hash160(hexData: string): string {
-    // Placeholder - in production use @bsv/sdk crypto
-    console.warn('hash160: Using placeholder implementation')
-    return hexData.slice(0, 40)
+    // Convert hex to bytes
+    const bytes: number[] = []
+    for (let i = 0; i < hexData.length; i += 2) {
+      bytes.push(parseInt(hexData.slice(i, i + 2), 16))
+    }
+
+    // Use @bsv/sdk Hash.hash160
+    const hash = Hash.hash160(bytes)
+
+    // Convert back to hex
+    return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('')
   }
 }
 

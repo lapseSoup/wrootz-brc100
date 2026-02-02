@@ -12,7 +12,7 @@
  * - 'XDM' - Browser extensions (cross-document messaging)
  */
 
-import { WalletClient } from '@bsv/sdk'
+import { WalletClient, Hash } from '@bsv/sdk'
 import type { WalletProvider, WalletBalance, SendResult, LockResult, InscriptionData, InscriptionResult, LockedOutput, UnlockResult } from './types'
 
 // Connection timeout in milliseconds
@@ -785,14 +785,19 @@ export class BRC100WalletAdapter implements WalletProvider {
 
   /**
    * HASH160 (RIPEMD160(SHA256(data)))
-   * Note: In production, use proper crypto libraries
    */
   private hash160(hexData: string): string {
-    // This is a placeholder - in production use @bsv/sdk crypto
-    // For now, we'll return the input truncated to 20 bytes (40 hex chars)
-    // This should be replaced with actual hash160 implementation
-    console.warn('hash160: Using placeholder implementation - replace with @bsv/sdk crypto')
-    return hexData.slice(0, 40)
+    // Convert hex to bytes
+    const bytes: number[] = []
+    for (let i = 0; i < hexData.length; i += 2) {
+      bytes.push(parseInt(hexData.slice(i, i + 2), 16))
+    }
+
+    // Use @bsv/sdk Hash.hash160
+    const hash = Hash.hash160(bytes)
+
+    // Convert back to hex
+    return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('')
   }
 }
 
