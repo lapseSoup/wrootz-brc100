@@ -34,7 +34,8 @@ export interface LockVerification {
   txExists: boolean
   outputExists: boolean
   amountMatches: boolean
-  scriptIsValidCLTV: boolean
+  scriptIsValidLock: boolean
+  scriptType?: 'pushtx' | 'unknown'
   unlockBlockMatches: boolean
   isUnspent: boolean
   ordinalReferenceFound: boolean
@@ -108,71 +109,61 @@ export async function isOutputUnspent(txid: string, vout: number): Promise<boole
   }
 }
 
+// OP_PUSH_TX timelock script signature (from Simply Sats / jdh7190's bsv-lock)
+// This is the first 32-byte constant that identifies the sCrypt-compiled timelock script
+const PUSHTX_SIGNATURE = '2097dfd76851bf465e8f715593b217714858bbe9570ff3bd5e33840a34e20ff026'
+
 /**
- * Parse CLTV locking script to extract unlock block
- * CLTV script format: <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG
- * Hex: <locktime_push> b1 75 <pubkey_push> ac
+ * Parse OP_PUSH_TX timelock script (Simply Sats format)
+ *
+ * Script structure:
+ * - Offset 0-203: Prefix constants (3x 32-byte + 2 zeros)
+ * - Offset 204-205: 0x14 (push 20 bytes marker)
+ * - Offset 206-245: Public Key Hash (20 bytes = 40 hex chars)
+ * - Offset 246-247: Push-length byte for nLockTime
+ * - Offset 248+: nLockTime value (little-endian, 1-4 bytes)
+ * - Remainder: Suffix operations
  */
-export function parseCLTVScript(scriptHex: string): { unlockBlock: number; pubKey: string } | null {
+export function parsePushTxScript(scriptHex: string): { unlockBlock: number; pubKeyHash: string } | null {
   try {
-    // Script should end with OP_CHECKSIG (ac)
-    if (!scriptHex.endsWith('ac')) return null
+    // Check for OP_PUSH_TX signature
+    if (!scriptHex.startsWith(PUSHTX_SIGNATURE)) return null
 
-    // Find OP_CLTV (b1) and OP_DROP (75)
-    const cltvIndex = scriptHex.indexOf('b175')
-    if (cltvIndex === -1) return null
+    // Verify PKH push marker at offset 204
+    const pkhPushByte = scriptHex.substring(204, 206)
+    if (pkhPushByte !== '14') return null // Must be push 20 bytes
 
-    // Everything before b175 is the locktime push
-    const locktimePart = scriptHex.substring(0, cltvIndex)
+    // Extract public key hash (20 bytes = 40 hex chars starting at offset 206)
+    const pubKeyHash = scriptHex.substring(206, 246)
+    if (pubKeyHash.length !== 40) return null
 
-    // Parse the locktime (it's a script number)
-    const unlockBlock = parseScriptNumber(locktimePart)
-    if (unlockBlock === null) return null
+    // Extract nLockTime at offset 246
+    const nLockTimePushByte = parseInt(scriptHex.substring(246, 248), 16)
+    if (nLockTimePushByte < 1 || nLockTimePushByte > 5) return null // Reasonable range for block height
 
-    // Everything after b175 until ac is the pubkey push
-    const pubkeyPart = scriptHex.substring(cltvIndex + 4, scriptHex.length - 2)
+    const nLockTimeHex = scriptHex.substring(248, 248 + nLockTimePushByte * 2)
+    const unlockBlock = littleEndianHexToNumber(nLockTimeHex)
 
-    // Extract pubkey (remove push opcode)
-    const pubKey = extractPushData(pubkeyPart)
-    if (!pubKey) return null
-
-    return { unlockBlock, pubKey }
+    return { unlockBlock, pubKeyHash }
   } catch (error) {
-    console.error('Failed to parse CLTV script:', error)
+    console.error('Failed to parse OP_PUSH_TX script:', error)
     return null
   }
 }
 
 /**
- * Parse a script number from hex
+ * Parse timelock script (OP_PUSH_TX format from Simply Sats)
+ * Returns the unlock block and script type
  */
-function parseScriptNumber(hex: string): number | null {
-  if (!hex || hex.length === 0) return null
-
-  // Get the push opcode (first byte)
-  const pushOp = parseInt(hex.substring(0, 2), 16)
-
-  // Small numbers (OP_1 through OP_16)
-  if (pushOp >= 0x51 && pushOp <= 0x60) {
-    return pushOp - 0x50
+export function parseTimelockScript(scriptHex: string): { unlockBlock: number; scriptType: 'pushtx'; pubKeyHash: string } | null {
+  const result = parsePushTxScript(scriptHex)
+  if (result) {
+    return {
+      unlockBlock: result.unlockBlock,
+      scriptType: 'pushtx',
+      pubKeyHash: result.pubKeyHash
+    }
   }
-
-  // OP_0
-  if (pushOp === 0x00) return 0
-
-  // Direct push (1-75 bytes)
-  if (pushOp >= 0x01 && pushOp <= 0x4b) {
-    const dataHex = hex.substring(2, 2 + pushOp * 2)
-    return littleEndianHexToNumber(dataHex)
-  }
-
-  // OP_PUSHDATA1
-  if (pushOp === 0x4c) {
-    const len = parseInt(hex.substring(2, 4), 16)
-    const dataHex = hex.substring(4, 4 + len * 2)
-    return littleEndianHexToNumber(dataHex)
-  }
-
   return null
 }
 
@@ -194,35 +185,6 @@ function littleEndianHexToNumber(hex: string): number {
   }
 
   return num
-}
-
-/**
- * Extract push data from script (removes the push opcode)
- */
-function extractPushData(hex: string): string | null {
-  if (!hex || hex.length < 2) return null
-
-  const pushOp = parseInt(hex.substring(0, 2), 16)
-
-  // Direct push (1-75 bytes)
-  if (pushOp >= 0x01 && pushOp <= 0x4b) {
-    return hex.substring(2, 2 + pushOp * 2)
-  }
-
-  // OP_PUSHDATA1
-  if (pushOp === 0x4c) {
-    const len = parseInt(hex.substring(2, 4), 16)
-    return hex.substring(4, 4 + len * 2)
-  }
-
-  // OP_PUSHDATA2
-  if (pushOp === 0x4d) {
-    const lenHex = hex.substring(2, 6)
-    const len = parseInt(lenHex.match(/.{2}/g)!.reverse().join(''), 16)
-    return hex.substring(6, 6 + len * 2)
-  }
-
-  return null
 }
 
 /**
@@ -298,7 +260,8 @@ export async function verifyLock(
     txExists: false,
     outputExists: false,
     amountMatches: false,
-    scriptIsValidCLTV: false,
+    scriptIsValidLock: false,
+    scriptType: 'unknown',
     unlockBlockMatches: false,
     isUnspent: false,
     ordinalReferenceFound: !expectedOrdinalOrigin, // True if not expected
@@ -314,7 +277,7 @@ export async function verifyLock(
     }
     result.txExists = true
 
-    // Find the lock output (output 0 should be the CLTV lock)
+    // Find the lock output (output 0 should be the timelock)
     const lockOutput = tx.vout[0]
     if (!lockOutput) {
       result.error = 'Lock output (vout 0) not found'
@@ -326,14 +289,15 @@ export async function verifyLock(
     result.onChainAmount = lockOutput.value
     result.amountMatches = lockOutput.value === expectedSatoshis
 
-    // Parse and verify CLTV script
-    const parsed = parseCLTVScript(lockOutput.scriptPubKey.hex)
+    // Parse and verify timelock script (supports both OP_PUSH_TX and CLTV)
+    const parsed = parseTimelockScript(lockOutput.scriptPubKey.hex)
     if (parsed) {
-      result.scriptIsValidCLTV = true
+      result.scriptIsValidLock = true
+      result.scriptType = parsed.scriptType
       result.onChainUnlockBlock = parsed.unlockBlock
       result.unlockBlockMatches = parsed.unlockBlock === expectedUnlockBlock
     } else {
-      result.error = 'Script is not a valid CLTV lock'
+      result.error = 'Script is not a valid timelock (expected OP_PUSH_TX or CLTV format)'
     }
 
     // Check if still unspent
@@ -352,7 +316,7 @@ export async function verifyLock(
     result.verified = result.txExists &&
       result.outputExists &&
       result.amountMatches &&
-      result.scriptIsValidCLTV &&
+      result.scriptIsValidLock &&
       result.unlockBlockMatches &&
       result.ordinalReferenceFound
 

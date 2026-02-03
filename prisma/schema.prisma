@@ -135,7 +135,7 @@ model Lock {
   verified       Boolean  @default(false)  // Whether lock passes all verification checks
   verifiedAt     DateTime?                 // When last verified
   onChainAmount  Int?                      // Actual satoshis found on-chain
-  onChainUnlock  Int?                      // Actual unlock block from CLTV script
+  onChainUnlock  Int?                      // Actual unlock block from timelock script
 
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

@@ -203,50 +203,26 @@ export class SimplySatsAdapter implements WalletProvider {
 
   async lockBSV(satoshis: number, blocks: number, ordinalOrigin?: string): Promise<LockResult> {
     try {
-      // Get current block height
+      // Get current block height to calculate unlock block
       const { height: currentHeight } = await this.api<{ height: number }>('getHeight')
       const unlockBlock = currentHeight + blocks
 
-      // Get user's public key for the lock
+      // Get user's public key for tracking
       const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
-
-      // Create a time-locked output using OP_CHECKLOCKTIMEVERIFY (CLTV)
-      const lockingScript = this.createCLTVLockingScript(publicKey, unlockBlock)
 
       console.log(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
 
-      // Build outputs array
-      const outputs: Array<{
-        lockingScript: string
-        satoshis: number
-        outputDescription: string
-        basket?: string
-        tags?: string[]
-      }> = [
-        {
-          lockingScript,
-          satoshis,
-          outputDescription: `Locked until block ${unlockBlock}`,
-          basket: 'wrootz_locks',
-          tags: ['lock', `unlock_${unlockBlock}`, 'wrootz', ...(ordinalOrigin ? [`ordinal_${ordinalOrigin}`] : [])]
-        }
-      ]
-
-      // Add OP_RETURN output with ordinal reference if provided
-      if (ordinalOrigin) {
-        const opReturnScript = this.createWrootzOpReturn('lock', ordinalOrigin)
-        outputs.push({
-          lockingScript: opReturnScript,
-          satoshis: 0,
-          outputDescription: `Wrootz lock reference to ordinal ${ordinalOrigin}`
-        })
-      }
-
+      // Use Simply Sats native lockBSV which uses OP_PUSH_TX timelock
+      // This delegates the script creation to the wallet's proven implementation
       const result = await this.withTimeout(
-        this.api<{ txid: string }>('createAction', {
-          description: `Wrootz: Lock ${satoshis} sats for ${blocks} blocks${ordinalOrigin ? ` → ${ordinalOrigin.slice(0, 8)}...` : ''}`,
-          outputs,
-          labels: ['lock', 'wrootz']
+        this.api<{ txid: string; unlockBlock: number }>('lockBSV', {
+          satoshis,
+          blocks,
+          // Pass metadata for wallet to tag the output
+          metadata: {
+            app: 'wrootz',
+            ordinalOrigin: ordinalOrigin || null
+          }
         }),
         60000,
         'Lock transaction timed out. Please approve the transaction in Simply Sats.'
@@ -256,13 +232,32 @@ export class SimplySatsAdapter implements WalletProvider {
         throw new Error('Lock transaction creation failed - no txid returned')
       }
 
+      // If the wallet supports ordinal linking, create the OP_RETURN separately
+      // Otherwise, the lock is still valid without it
+      if (ordinalOrigin) {
+        try {
+          await this.api<{ txid: string }>('createAction', {
+            description: `Wrootz: Link lock to ordinal`,
+            outputs: [{
+              lockingScript: this.createWrootzOpReturn('lock', ordinalOrigin),
+              satoshis: 0,
+              outputDescription: `Wrootz lock reference to ordinal ${ordinalOrigin}`
+            }],
+            labels: ['lock-reference', 'wrootz']
+          })
+        } catch (linkError) {
+          // Non-fatal: the lock is valid even without the OP_RETURN link
+          console.warn('Could not create ordinal link OP_RETURN:', linkError)
+        }
+      }
+
       console.log('Lock created:', result.txid)
 
       return {
         txid: result.txid,
         lockAddress: publicKey,
         amount: satoshis,
-        unlockBlock
+        unlockBlock: result.unlockBlock || unlockBlock
       }
     } catch (error) {
       if (error instanceof Error) {
@@ -518,11 +513,6 @@ export class SimplySatsAdapter implements WalletProvider {
     return '76a914' + pubKeyHashHex + '88ac'
   }
 
-  private createCLTVLockingScript(pubKeyHex: string, lockTime: number): string {
-    const lockTimeHex = this.encodeScriptNum(lockTime)
-    return lockTimeHex + 'b175' + this.pushData(pubKeyHex) + 'ac'
-  }
-
   private createWrootzOpReturn(action: string, data: string): string {
     let script = '6a00'
     script += this.pushData(Buffer.from('wrootz').toString('hex'))
@@ -548,30 +538,6 @@ export class SimplySatsAdapter implements WalletProvider {
     }
 
     return bytes.slice(0, 21)
-  }
-
-  private encodeScriptNum(num: number): string {
-    if (num === 0) return '00'
-    if (num >= 1 && num <= 16) return (0x50 + num).toString(16)
-
-    const bytes: number[] = []
-    let n = Math.abs(num)
-    while (n > 0) {
-      bytes.push(n & 0xff)
-      n >>= 8
-    }
-
-    if (bytes[bytes.length - 1] & 0x80) {
-      bytes.push(num < 0 ? 0x80 : 0x00)
-    } else if (num < 0) {
-      bytes[bytes.length - 1] |= 0x80
-    }
-
-    const len = bytes.length
-    const lenHex = len.toString(16).padStart(2, '0')
-    const dataHex = bytes.map(b => b.toString(16).padStart(2, '0')).join('')
-
-    return lenHex + dataHex
   }
 
   private pushData(hexData: string): string {

@@ -303,71 +303,77 @@ export class BRC100WalletAdapter implements WalletProvider {
       const { height: currentHeight } = await client.getHeight()
       const unlockBlock = currentHeight + blocks
 
-      // Get user's public key for the lock
+      // Get user's public key for tracking
       const { publicKey } = await client.getPublicKey({ identityKey: true })
-
-      // Create a time-locked output using OP_CHECKLOCKTIMEVERIFY (CLTV)
-      // The locking script checks that the block height is >= unlockBlock
-      const lockingScript = this.createCLTVLockingScript(publicKey, unlockBlock)
 
       console.log(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
       if (ordinalOrigin) {
         console.log(`Linking to ordinal: ${ordinalOrigin}`)
       }
 
-      // Build outputs array
-      const outputs: Array<{
-        lockingScript: string
-        satoshis: number
-        outputDescription: string
-        basket?: string
-        tags?: string[]
-      }> = [
-        {
-          lockingScript,
-          satoshis,
-          outputDescription: `Locked until block ${unlockBlock}`,
-          basket: 'wrootz_locks',
-          tags: ['lock', `unlock_${unlockBlock}`, 'wrootz', ...(ordinalOrigin ? [`ordinal_${ordinalOrigin}`] : [])]
-        }
-      ]
+      // Try to use the wallet's native lockBSV if available (e.g., OP_PUSH_TX)
+      // This is the preferred method as it uses a proven timelock implementation
+      let result: { txid: string; unlockBlock?: number }
 
-      // Add OP_RETURN output with ordinal reference if provided
-      // Format: OP_RETURN "wrootz" "lock" <ordinal_origin>
-      // This creates an on-chain link between the lock and the content it supports
-      if (ordinalOrigin) {
-        const opReturnScript = this.createWrootzOpReturn('lock', ordinalOrigin)
-        outputs.push({
-          lockingScript: opReturnScript,
-          satoshis: 0, // OP_RETURN outputs have 0 satoshis
-          outputDescription: `Wrootz lock reference to ordinal ${ordinalOrigin}`
-        })
+      try {
+        // Attempt native lock via HTTP API (same pattern as Simply Sats)
+        const lockResponse = await this.withTimeout(
+          fetch(`http://localhost:3321/lockBSV`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              satoshis,
+              blocks,
+              metadata: { app: 'wrootz', ordinalOrigin: ordinalOrigin || null }
+            })
+          }).then(r => r.ok ? r.json() : Promise.reject(new Error('Native lock not available'))),
+          10000,
+          'Native lock timeout'
+        )
+
+        if (lockResponse.txid) {
+          result = lockResponse
+          console.log('Used native wallet lockBSV')
+        } else {
+          throw new Error('No txid from native lock')
+        }
+      } catch {
+        // Native lock not available - this wallet may not support timelocks
+        // For now, throw an error explaining the limitation
+        throw new Error(
+          'This BRC-100 wallet does not support native timelocks. ' +
+          'Please use Simply Sats wallet for locking functionality, or contact your wallet provider ' +
+          'to add OP_PUSH_TX timelock support.'
+        )
       }
 
-      const result = await this.withTimeout(
-        client.createAction({
-          description: `Wrootz: Lock ${satoshis} sats for ${blocks} blocks${ordinalOrigin ? ` → ${ordinalOrigin.slice(0, 8)}...` : ''}`,
-          outputs,
-          labels: ['lock', 'wrootz']
-        }),
-        60000, // 60 second timeout for user to approve
-        'Lock transaction timed out. Please approve the transaction in your wallet.'
-      )
-
-      if (!result.txid) {
-        throw new Error('Lock transaction creation failed - no txid returned')
+      // Create OP_RETURN link to ordinal if provided
+      if (ordinalOrigin && result.txid) {
+        try {
+          await client.createAction({
+            description: `Wrootz: Link lock to ordinal`,
+            outputs: [{
+              lockingScript: this.createWrootzOpReturn('lock', ordinalOrigin),
+              satoshis: 0,
+              outputDescription: `Wrootz lock reference to ordinal ${ordinalOrigin}`
+            }],
+            labels: ['lock-reference', 'wrootz']
+          })
+        } catch (linkError) {
+          // Non-fatal: the lock is valid even without the OP_RETURN link
+          console.warn('Could not create ordinal link OP_RETURN:', linkError)
+        }
       }
 
       console.log('Lock created:', result.txid)
 
       return {
         txid: result.txid,
-        lockAddress: publicKey, // Using pubkey as address for BRC-100
+        lockAddress: publicKey,
         amount: satoshis,
-        unlockBlock
+        unlockBlock: result.unlockBlock || unlockBlock
       }
     } catch (error) {
-      // Re-throw with more context
       if (error instanceof Error) {
         if (error.message.includes('Failed to fetch')) {
           throw new Error('Lost connection to wallet. Please try again or reconnect your wallet.')
@@ -648,16 +654,6 @@ export class BRC100WalletAdapter implements WalletProvider {
   }
 
   /**
-   * Create a CLTV time-locked locking script
-   */
-  private createCLTVLockingScript(pubKeyHex: string, lockTime: number): string {
-    // Build CLTV locking script:
-    // <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG
-    const lockTimeHex = this.encodeScriptNum(lockTime)
-    return lockTimeHex + 'b175' + this.pushData(pubKeyHex) + 'ac'
-  }
-
-  /**
    * Create an OP_RETURN script for Wrootz protocol data
    * Format: OP_RETURN OP_FALSE "wrootz" <action> <data>
    *
@@ -737,34 +733,6 @@ export class BRC100WalletAdapter implements WalletProvider {
     }
 
     return bytes.slice(0, 21) // Return version byte + 20 byte hash
-  }
-
-  /**
-   * Encode a number for script (minimal encoding)
-   */
-  private encodeScriptNum(num: number): string {
-    if (num === 0) return '00'
-    if (num >= 1 && num <= 16) return (0x50 + num).toString(16)
-
-    const bytes: number[] = []
-    let n = Math.abs(num)
-    while (n > 0) {
-      bytes.push(n & 0xff)
-      n >>= 8
-    }
-
-    // Add sign bit if needed
-    if (bytes[bytes.length - 1] & 0x80) {
-      bytes.push(num < 0 ? 0x80 : 0x00)
-    } else if (num < 0) {
-      bytes[bytes.length - 1] |= 0x80
-    }
-
-    const len = bytes.length
-    const lenHex = len.toString(16).padStart(2, '0')
-    const dataHex = bytes.map(b => b.toString(16).padStart(2, '0')).join('')
-
-    return lenHex + dataHex
   }
 
   /**
