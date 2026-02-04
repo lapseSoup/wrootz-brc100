@@ -4,6 +4,7 @@ import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { revalidatePath } from 'next/cache'
 import { getCurrentBlockHeight } from '@/app/lib/blockchain'
+import { headers } from 'next/headers'
 
 // Check if current user is admin
 async function requireAdmin() {
@@ -21,6 +22,31 @@ async function requireAdmin() {
   }
 
   return { isAdmin: true, userId: session.userId }
+}
+
+// Log admin action for audit trail
+async function logAdminAction(
+  adminId: string,
+  action: string,
+  details: Record<string, unknown>,
+  targetType?: string,
+  targetId?: string
+) {
+  const headersList = await headers()
+  const ipAddress = headersList.get('x-forwarded-for') || headersList.get('x-real-ip') || null
+  const userAgent = headersList.get('user-agent') || null
+
+  await prisma.adminAuditLog.create({
+    data: {
+      adminId,
+      action,
+      details: JSON.stringify(details),
+      targetType,
+      targetId,
+      ipAddress,
+      userAgent
+    }
+  })
 }
 
 // NOTE: grantBSV is disabled for mainnet - users get real BSV from their wallet
@@ -61,6 +87,20 @@ export async function deletePost(formData: FormData) {
 
   await prisma.post.delete({ where: { id: postId } })
 
+  // Log admin action
+  await logAdminAction(
+    adminCheck.userId!,
+    'delete_post',
+    {
+      postTitle: post.title,
+      creatorId: post.creatorId,
+      ownerId: post.ownerId,
+      inscriptionId: post.inscriptionId
+    },
+    'post',
+    postId
+  )
+
   revalidatePath('/')
   revalidatePath('/admin')
 
@@ -93,6 +133,18 @@ export async function setAdminStatus(formData: FormData) {
     where: { id: targetUser.id },
     data: { isAdmin }
   })
+
+  // Log admin action
+  await logAdminAction(
+    adminCheck.userId!,
+    isAdmin ? 'grant_admin' : 'revoke_admin',
+    {
+      targetUsername: username,
+      newStatus: isAdmin
+    },
+    'user',
+    targetUser.id
+  )
 
   revalidatePath('/admin')
 
@@ -288,6 +340,22 @@ export async function deleteLock(formData: FormData) {
     data: { totalTu }
   })
 
+  // Log admin action
+  await logAdminAction(
+    adminCheck.userId!,
+    'delete_lock',
+    {
+      lockAmount: lock.amount,
+      lockSatoshis: lock.satoshis,
+      lockTxid: lock.txid,
+      lockerUsername: lock.user.username,
+      postId: lock.postId,
+      postTitle: lock.post.title
+    },
+    'lock',
+    lockId
+  )
+
   revalidatePath('/')
   revalidatePath('/admin')
   revalidatePath(`/post/${lock.postId}`)
@@ -295,5 +363,44 @@ export async function deleteLock(formData: FormData) {
   return {
     success: true,
     message: `Deleted lock record by @${lock.user.username}. Note: On-chain lock is unaffected.`
+  }
+}
+
+// Get audit logs for admin review
+export async function getAuditLogs(options?: {
+  limit?: number
+  action?: string
+  adminId?: string
+}) {
+  const adminCheck = await requireAdmin()
+  if (!adminCheck.isAdmin) {
+    return { error: adminCheck.error, logs: [] }
+  }
+
+  const { limit = 100, action, adminId } = options || {}
+
+  const logs = await prisma.adminAuditLog.findMany({
+    where: {
+      ...(action && { action }),
+      ...(adminId && { adminId })
+    },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(limit, 500) // Cap at 500 to prevent abuse
+  })
+
+  // Fetch admin usernames for display
+  const adminIds = Array.from(new Set(logs.map((log: { adminId: string }) => log.adminId)))
+  const admins = await prisma.user.findMany({
+    where: { id: { in: adminIds } },
+    select: { id: true, username: true }
+  })
+  const adminMap = new Map(admins.map(a => [a.id, a.username]))
+
+  return {
+    logs: logs.map((log: { adminId: string; details: string; id: string; action: string; targetType: string | null; targetId: string | null; ipAddress: string | null; userAgent: string | null; createdAt: Date }) => ({
+      ...log,
+      adminUsername: adminMap.get(log.adminId) || 'Unknown',
+      details: JSON.parse(log.details)
+    }))
   }
 }

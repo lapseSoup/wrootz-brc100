@@ -3,8 +3,8 @@ import { getSession } from '@/app/lib/session'
 import { writeFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
+import { validateImageFile, getExtensionForType, isAllowedImageType } from '@/app/lib/file-validation'
 
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 const MAX_SIZE = 2 * 1024 * 1024 // 2MB
 
 export async function POST(request: NextRequest) {
@@ -21,7 +21,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    // First check MIME type (quick filter)
+    if (!isAllowedImageType(file.type)) {
       return NextResponse.json(
         { error: 'Invalid file type. Allowed: JPG, PNG, GIF, WebP' },
         { status: 400 }
@@ -35,20 +36,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Convert file to buffer
+    const bytes = await file.arrayBuffer()
+    const buffer = Buffer.from(bytes)
+
+    // Validate file content using magic numbers
+    const validation = validateImageFile(buffer, file.type)
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.error || 'Invalid image file' },
+        { status: 400 }
+      )
+    }
+
     // Create avatars directory if it doesn't exist
     const avatarsDir = path.join(process.cwd(), 'public', 'avatars')
     if (!existsSync(avatarsDir)) {
       await mkdir(avatarsDir, { recursive: true })
     }
 
-    // Generate unique filename
-    const ext = file.name.split('.').pop() || 'jpg'
+    // Generate unique filename using detected type (not claimed extension)
+    const ext = getExtensionForType(validation.detectedType!)
     const filename = `${session.userId}-${Date.now()}.${ext}`
     const filepath = path.join(avatarsDir, filename)
 
-    // Convert file to buffer and save
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
+    // Save the file
     await writeFile(filepath, buffer)
 
     // Return the public URL

@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import PostCard from './PostCard'
 import Link from 'next/link'
+import { useFeed } from '@/app/hooks/useAppData'
 
 interface Lock {
   id: string
@@ -38,56 +39,48 @@ interface FeedClientProps {
   showHidden?: boolean  // whether showing hidden posts only
 }
 
-export default function FeedClient({ initialPosts, search, filter, archive, searchTags, showHidden }: FeedClientProps) {
-  const [posts, setPosts] = useState<Post[]>(initialPosts)
+export default function FeedClient({ initialPosts, search, filter, archive, searchTags: initialSearchTags, showHidden }: FeedClientProps) {
   const [hasNewPosts, setHasNewPosts] = useState(false)
+  const [displayedPosts, setDisplayedPosts] = useState<Post[]>(initialPosts)
 
-  const fetchPosts = useCallback(async () => {
-    try {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (filter && filter !== 'all') params.set('filter', filter)
-      if (archive) params.set('archive', 'true')
-      if (showHidden) params.set('hidden', 'true')
+  // Use centralized data fetching hook with SWR
+  const { posts, searchTags, isValidating, refresh } = useFeed({
+    search,
+    filter,
+    archive,
+    showHidden,
+    limit: 50
+  })
 
-      const res = await fetch(`/api/feed?${params.toString()}`, { cache: 'no-store' })
-      if (!res.ok) return
-
-      const data = await res.json()
-
-      // Check if there are new posts at the top
-      if (data.posts.length > 0 && posts.length > 0) {
-        const newTopId = data.posts[0]?.id
-        const currentTopId = posts[0]?.id
-        if (newTopId !== currentTopId) {
-          setHasNewPosts(true)
-        }
+  // Update displayed posts when new data arrives
+  useEffect(() => {
+    if (posts.length > 0 && displayedPosts.length > 0) {
+      const newTopId = posts[0]?.id
+      const currentTopId = displayedPosts[0]?.id
+      if (newTopId !== currentTopId) {
+        setHasNewPosts(true)
       }
-
-      // Update posts in place (wrootz values, etc.) without jarring reorder
-      setPosts(data.posts)
-    } catch (err) {
-      console.error('Failed to fetch feed updates:', err)
     }
-  }, [search, filter, archive, showHidden, posts])
+    // Update posts (wrootz values decay, etc.)
+    if (posts.length > 0) {
+      setDisplayedPosts(posts)
+    }
+  }, [posts])
 
-  // Poll for updates every 10 seconds
+  // Reset when initial posts change (navigation)
   useEffect(() => {
-    const interval = setInterval(fetchPosts, 10000)
-    return () => clearInterval(interval)
-  }, [fetchPosts])
-
-  // Update posts when initial posts change (e.g., on navigation)
-  useEffect(() => {
-    setPosts(initialPosts)
+    setDisplayedPosts(initialPosts)
     setHasNewPosts(false)
   }, [initialPosts])
 
   const loadNewPosts = () => {
-    fetchPosts()
+    refresh()
     setHasNewPosts(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  // Use searchTags from hook or initial props
+  const activeTags = searchTags || initialSearchTags
 
   return (
     <>
@@ -96,24 +89,33 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
         <button
           onClick={loadNewPosts}
           className="w-full py-2 px-4 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--primary-dark)] transition-colors flex items-center justify-center gap-2"
+          aria-live="polite"
+          aria-label="New activity detected, click to refresh the feed"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
           New activity - click to refresh
         </button>
       )}
 
-      {/* Posts */}
-      {/* Tag search indicator */}
-      {searchTags && searchTags.length > 0 && (
-        <div className="text-xs text-[var(--muted)] mb-2">
-          Ranked by wrootz in {searchTags.map(t => `#${t}`).join(' + ')}
+      {/* Loading indicator for background refresh */}
+      {isValidating && displayedPosts.length > 0 && (
+        <div className="text-xs text-[var(--muted)] text-center py-1" aria-live="polite">
+          Refreshing...
         </div>
       )}
 
-      {posts.length === 0 ? (
-        <div className="card text-center py-12">
+      {/* Tag search indicator */}
+      {activeTags && activeTags.length > 0 && (
+        <div className="text-xs text-[var(--muted)] mb-2" role="status">
+          Ranked by wrootz in {activeTags.map(t => `#${t}`).join(' + ')}
+        </div>
+      )}
+
+      {/* Posts */}
+      {displayedPosts.length === 0 ? (
+        <div className="card text-center py-12" role="status" aria-label="No posts found">
           <h2 className="text-xl font-semibold mb-2">
             {showHidden ? 'No hidden posts' :
              archive ? 'No archived posts' :
@@ -144,9 +146,9 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
           )}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} searchTags={searchTags} isHidden={showHidden} />
+        <div className="flex flex-col gap-2" role="feed" aria-label="Post feed">
+          {displayedPosts.map((post) => (
+            <PostCard key={post.id} post={post} searchTags={activeTags} isHidden={showHidden} />
           ))}
         </div>
       )}

@@ -5,6 +5,38 @@ import { getSession } from '@/app/lib/session'
 import { revalidatePath } from 'next/cache'
 import { notifyNewFollower } from './notifications'
 
+// Tag validation constants
+const MIN_TAG_LENGTH = 1
+const MAX_TAG_LENGTH = 50
+const TAG_PATTERN = /^[a-zA-Z0-9_-]+$/
+
+/**
+ * Validate and normalize a tag string
+ * @returns validation result with normalized tag or error
+ */
+function validateTag(tag: string): { valid: boolean; normalized?: string; error?: string } {
+  if (!tag || typeof tag !== 'string') {
+    return { valid: false, error: 'Tag is required' }
+  }
+
+  const trimmed = tag.trim()
+
+  if (trimmed.length < MIN_TAG_LENGTH) {
+    return { valid: false, error: `Tag must be at least ${MIN_TAG_LENGTH} character` }
+  }
+
+  if (trimmed.length > MAX_TAG_LENGTH) {
+    return { valid: false, error: `Tag must be ${MAX_TAG_LENGTH} characters or less` }
+  }
+
+  if (!TAG_PATTERN.test(trimmed)) {
+    return { valid: false, error: 'Tag can only contain letters, numbers, underscores, and hyphens' }
+  }
+
+  // Normalize to lowercase for consistency
+  return { valid: true, normalized: trimmed.toLowerCase() }
+}
+
 // Tag following
 export async function followTag(tag: string) {
   const session = await getSession()
@@ -12,10 +44,18 @@ export async function followTag(tag: string) {
     return { error: 'You must be logged in' }
   }
 
+  // Validate tag input
+  const validation = validateTag(tag)
+  if (!validation.valid) {
+    return { error: validation.error }
+  }
+
+  const normalizedTag = validation.normalized!
+
   try {
     await prisma.followedTag.create({
       data: {
-        tag,
+        tag: normalizedTag,
         userId: session.userId
       }
     })
@@ -33,9 +73,17 @@ export async function unfollowTag(tag: string) {
     return { error: 'You must be logged in' }
   }
 
+  // Validate and normalize tag
+  const validation = validateTag(tag)
+  if (!validation.valid) {
+    return { error: validation.error }
+  }
+
+  const normalizedTag = validation.normalized!
+
   await prisma.followedTag.deleteMany({
     where: {
-      tag,
+      tag: normalizedTag,
       userId: session.userId
     }
   })
@@ -48,11 +96,17 @@ export async function isFollowingTag(tag: string): Promise<boolean> {
   const session = await getSession()
   if (!session) return false
 
+  // Validate and normalize tag
+  const validation = validateTag(tag)
+  if (!validation.valid) return false
+
+  const normalizedTag = validation.normalized!
+
   const follow = await prisma.followedTag.findUnique({
     where: {
       userId_tag: {
         userId: session.userId,
-        tag
+        tag: normalizedTag
       }
     }
   })
@@ -72,6 +126,36 @@ export async function getFollowedTags(): Promise<string[]> {
   return follows.map(f => f.tag)
 }
 
+// Username validation constants
+const MIN_USERNAME_LENGTH = 3
+const MAX_USERNAME_LENGTH = 20
+const USERNAME_PATTERN = /^[a-zA-Z0-9_-]+$/
+
+/**
+ * Validate a username string
+ */
+function validateUsername(username: string): { valid: boolean; normalized?: string; error?: string } {
+  if (!username || typeof username !== 'string') {
+    return { valid: false, error: 'Username is required' }
+  }
+
+  const trimmed = username.trim()
+
+  if (trimmed.length < MIN_USERNAME_LENGTH) {
+    return { valid: false, error: `Username must be at least ${MIN_USERNAME_LENGTH} characters` }
+  }
+
+  if (trimmed.length > MAX_USERNAME_LENGTH) {
+    return { valid: false, error: `Username must be ${MAX_USERNAME_LENGTH} characters or less` }
+  }
+
+  if (!USERNAME_PATTERN.test(trimmed)) {
+    return { valid: false, error: 'Username can only contain letters, numbers, underscores, and hyphens' }
+  }
+
+  return { valid: true, normalized: trimmed.toLowerCase() }
+}
+
 // User following
 export async function followUser(username: string) {
   const session = await getSession()
@@ -79,8 +163,16 @@ export async function followUser(username: string) {
     return { error: 'You must be logged in' }
   }
 
+  // Validate username
+  const validation = validateUsername(username)
+  if (!validation.valid) {
+    return { error: validation.error }
+  }
+
+  const normalizedUsername = validation.normalized!
+
   const userToFollow = await prisma.user.findUnique({
-    where: { username }
+    where: { username: normalizedUsername }
   })
 
   if (!userToFollow) {
@@ -109,7 +201,7 @@ export async function followUser(username: string) {
     }
 
     revalidatePath('/')
-    revalidatePath(`/profile/${username}`)
+    revalidatePath(`/profile/${normalizedUsername}`)
     return { success: true }
   } catch {
     return { error: 'Already following this user' }
@@ -122,8 +214,16 @@ export async function unfollowUser(username: string) {
     return { error: 'You must be logged in' }
   }
 
+  // Validate username
+  const validation = validateUsername(username)
+  if (!validation.valid) {
+    return { error: validation.error }
+  }
+
+  const normalizedUsername = validation.normalized!
+
   const userToUnfollow = await prisma.user.findUnique({
-    where: { username }
+    where: { username: normalizedUsername }
   })
 
   if (!userToUnfollow) {
@@ -138,7 +238,7 @@ export async function unfollowUser(username: string) {
   })
 
   revalidatePath('/')
-  revalidatePath(`/profile/${username}`)
+  revalidatePath(`/profile/${normalizedUsername}`)
   return { success: true }
 }
 
@@ -146,8 +246,14 @@ export async function isFollowingUser(username: string): Promise<boolean> {
   const session = await getSession()
   if (!session) return false
 
+  // Validate username
+  const validation = validateUsername(username)
+  if (!validation.valid) return false
+
+  const normalizedUsername = validation.normalized!
+
   const userToCheck = await prisma.user.findUnique({
-    where: { username }
+    where: { username: normalizedUsername }
   })
 
   if (!userToCheck) return false
@@ -177,8 +283,12 @@ export async function getFollowedUserIds(): Promise<string[]> {
 }
 
 export async function getFollowerCount(username: string): Promise<number> {
+  // Validate username
+  const validation = validateUsername(username)
+  if (!validation.valid) return 0
+
   const user = await prisma.user.findUnique({
-    where: { username }
+    where: { username: validation.normalized }
   })
 
   if (!user) return 0
@@ -189,8 +299,12 @@ export async function getFollowerCount(username: string): Promise<number> {
 }
 
 export async function getFollowingCount(username: string): Promise<number> {
+  // Validate username
+  const validation = validateUsername(username)
+  if (!validation.valid) return 0
+
   const user = await prisma.user.findUnique({
-    where: { username }
+    where: { username: validation.normalized }
   })
 
   if (!user) return 0
@@ -201,8 +315,12 @@ export async function getFollowingCount(username: string): Promise<number> {
 }
 
 export async function getFollowers(username: string): Promise<{ username: string; createdAt: Date }[]> {
+  // Validate username
+  const validation = validateUsername(username)
+  if (!validation.valid) return []
+
   const user = await prisma.user.findUnique({
-    where: { username }
+    where: { username: validation.normalized }
   })
 
   if (!user) return []
@@ -224,8 +342,12 @@ export async function getFollowers(username: string): Promise<{ username: string
 }
 
 export async function getFollowing(username: string): Promise<{ username: string; createdAt: Date }[]> {
+  // Validate username
+  const validation = validateUsername(username)
+  if (!validation.valid) return []
+
   const user = await prisma.user.findUnique({
-    where: { username }
+    where: { username: validation.normalized }
   })
 
   if (!user) return []

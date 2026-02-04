@@ -147,6 +147,9 @@ model Lock {
   post      Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@index([txid])
+  @@index([userId, postId])
+  @@index([expired, startBlock])
+  @@index([tag])
 }
 
 model Transaction {
@@ -215,4 +218,23 @@ model HiddenPost {
   post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@unique([userId, postId])
+}
+
+// Admin audit log - tracks all admin actions for compliance
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  action      String   // 'delete_post', 'delete_lock', 'set_admin', etc.
+  details     String   // JSON-encoded details of the action
+  targetType  String?  // 'post', 'lock', 'user', etc.
+  targetId    String?  // ID of the affected entity
+  ipAddress   String?  // IP address of the admin (if available)
+  userAgent   String?  // Browser user agent (if available)
+  createdAt   DateTime @default(now())
+
+  // The admin who performed the action
+  adminId     String
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
 }

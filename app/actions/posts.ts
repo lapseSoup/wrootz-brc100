@@ -2,11 +2,12 @@
 
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
-import { MAX_POST_LENGTH, MAX_LOCK_DURATION_BLOCKS, calculateWrootz } from '@/app/lib/constants'
+import { MAX_POST_LENGTH, MAX_LOCK_DURATION_BLOCKS, MIN_LOCK_AMOUNT_SATS, MIN_LOCK_PERCENTAGE_FOR_SALE, SATS_PER_BSV, calculateWrootz } from '@/app/lib/constants'
 import { getCurrentBlockHeight } from '@/app/lib/blockchain'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { notifyLockOnPost, notifyFollowersOfNewPost, notifyTagFollowers, notifyReplyCreated } from './notifications'
+import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
 
 // Helper to get current block from blockchain or cache
 async function getCurrentBlock(): Promise<number> {
@@ -22,52 +23,87 @@ async function getCurrentBlock(): Promise<number> {
 }
 
 // Update lock statuses based on current block
+// Uses batch operations to prevent race conditions
 async function updateLockStatuses() {
   const currentBlock = await getCurrentBlock()
+  if (currentBlock === 0) return // Skip if we can't get block height
 
-  // Find locks that should be expired
-  const expiredLocks = await prisma.lock.findMany({
+  // Find locks that need updating (not expired and have started)
+  const activeLocks = await prisma.lock.findMany({
     where: {
       expired: false,
       startBlock: { lte: currentBlock }
     }
   })
 
-  for (const lock of expiredLocks) {
+  if (activeLocks.length === 0) return
+
+  // Group locks by their new state
+  const expiredLockUpdates: { id: string; postId: string; currentTu: number }[] = []
+  const decayLockUpdates: { id: string; remainingBlocks: number; currentTu: number }[] = []
+
+  for (const lock of activeLocks) {
     const blocksElapsed = currentBlock - lock.startBlock
     const remainingBlocks = Math.max(0, lock.durationBlocks - blocksElapsed)
 
     if (remainingBlocks <= 0) {
-      // Lock has expired
-      await prisma.$transaction([
-        prisma.lock.update({
-          where: { id: lock.id },
-          data: {
-            expired: true,
-            remainingBlocks: 0,
-            currentTu: 0
-          }
-        }),
-        prisma.post.update({
-          where: { id: lock.postId },
-          data: {
-            totalTu: { decrement: lock.currentTu }
-          }
-        })
-      ])
+      expiredLockUpdates.push({
+        id: lock.id,
+        postId: lock.postId,
+        currentTu: lock.currentTu
+      })
     } else {
-      // Update remaining blocks and decay TU
       const decayFactor = remainingBlocks / lock.durationBlocks
       const newTu = lock.initialTu * decayFactor
-
-      await prisma.lock.update({
-        where: { id: lock.id },
-        data: {
-          remainingBlocks,
-          currentTu: newTu
-        }
+      decayLockUpdates.push({
+        id: lock.id,
+        remainingBlocks,
+        currentTu: newTu
       })
     }
+  }
+
+  // Process all updates in a single transaction to prevent race conditions
+  const operations = []
+
+  // Batch expire locks
+  for (const lock of expiredLockUpdates) {
+    operations.push(
+      prisma.lock.update({
+        where: { id: lock.id },
+        data: {
+          expired: true,
+          remainingBlocks: 0,
+          currentTu: 0
+        }
+      })
+    )
+    operations.push(
+      prisma.post.update({
+        where: { id: lock.postId },
+        data: {
+          totalTu: { decrement: lock.currentTu }
+        }
+      })
+    )
+  }
+
+  // Batch decay updates
+  for (const lock of decayLockUpdates) {
+    operations.push(
+      prisma.lock.update({
+        where: { id: lock.id },
+        data: {
+          remainingBlocks: lock.remainingBlocks,
+          currentTu: lock.currentTu
+        }
+      })
+    )
+  }
+
+  // Execute all in one atomic transaction
+  if (operations.length > 0) {
+    await prisma.$transaction(operations)
   }
 }
 
@@ -109,85 +145,114 @@ export async function createPost(formData: FormData) {
     return { error: 'Posts must be inscribed on-chain. Please connect your wallet.' }
   }
 
-  // Verify reply target exists if specified
-  let replyToPost = null
-  if (replyToPostId) {
-    replyToPost = await prisma.post.findUnique({
-      where: { id: replyToPostId },
-      select: { id: true, title: true, ownerId: true }
+  // Use inscriptionTxid as idempotency key - prevents duplicate posts for same inscription
+  const idempotencyKey = generateIdempotencyKey('createPost', inscriptionTxid)
+  const idempotencyResult = await withIdempotencyAndLocking(idempotencyKey, async () => {
+    // Check if post with this inscription already exists
+    const existingPost = await prisma.post.findFirst({
+      where: { inscriptionTxid }
     })
-    if (!replyToPost) {
-      return { error: 'Reply target post not found' }
+    if (existingPost) {
+      return { postId: existingPost.id, duplicate: true }
     }
-  }
 
-  if (body.length > MAX_POST_LENGTH) {
-    return { error: `Post body must be ${MAX_POST_LENGTH} characters or less` }
-  }
-
-  if (lockerSharePercentage < 0 || lockerSharePercentage > 100) {
-    return { error: 'Locker share percentage must be between 0 and 100' }
-  }
-
-  // Create the post with inscription data
-  const post = await prisma.post.create({
-    data: {
-      title: title || '',  // Empty title allowed for replies
-      body,
-      imageUrl: imageUrl || null,
-      videoUrl: videoUrl || null,
-      lockerSharePercentage,
-      totalTu: 0,  // Starts with no wrootz until someone locks
-      inscriptionTxid,
-      inscriptionId,
-      contentHash,
-      creatorId: session.userId,
-      ownerId: session.userId // Creator is initial owner
+    // Verify reply target exists if specified
+    let replyToPost = null
+    if (replyToPostId) {
+      replyToPost = await prisma.post.findUnique({
+        where: { id: replyToPostId },
+        select: { id: true, title: true, ownerId: true }
+      })
+      if (!replyToPost) {
+        return { error: 'Reply target post not found' }
+      }
     }
-  })
 
-  // Create post link if this is a reply
-  if (replyToPost) {
-    await prisma.postLink.create({
+    if (body.length > MAX_POST_LENGTH) {
+      return { error: `Post body must be ${MAX_POST_LENGTH} characters or less` }
+    }
+
+    if (lockerSharePercentage < 0 || lockerSharePercentage > 100) {
+      return { error: 'Locker share percentage must be between 0 and 100' }
+    }
+
+    // Create the post with inscription data
+    const post = await prisma.post.create({
       data: {
-        type: 'reply',
-        sourcePostId: post.id,
-        targetPostId: replyToPost.id,
-        creatorId: session.userId
+        title: title || '',  // Empty title allowed for replies
+        body,
+        imageUrl: imageUrl || null,
+        videoUrl: videoUrl || null,
+        lockerSharePercentage,
+        totalTu: 0,  // Starts with no wrootz until someone locks
+        inscriptionTxid,
+        inscriptionId,
+        contentHash,
+        creatorId: session.userId,
+        ownerId: session.userId // Creator is initial owner
       }
     })
+
+    // Create post link if this is a reply
+    if (replyToPost) {
+      await prisma.postLink.create({
+        data: {
+          type: 'reply',
+          sourcePostId: post.id,
+          targetPostId: replyToPost.id,
+          creatorId: session.userId
+        }
+      })
+    }
+
+    // Record create transaction (with inscription txid)
+    await prisma.transaction.create({
+      data: {
+        action: 'Create',
+        amount: 0,
+        txid: inscriptionTxid,
+        confirmed: false,  // Will be confirmed on-chain
+        description: `Created post: ${title || 'Reply'}`,
+        userId: session.userId,
+        postId: post.id
+      }
+    })
+
+    // Notify followers of new post
+    const creator = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { username: true }
+    })
+    if (creator) {
+      // For replies, notify the parent post owner
+      if (replyToPost) {
+        await notifyReplyCreated(replyToPost.id, post.id, session.userId, creator.username)
+      } else {
+        // For regular posts, notify followers
+        await notifyFollowersOfNewPost(session.userId, creator.username, post.id, title || '', body)
+      }
+    }
+
+    return { postId: post.id }
+  })
+
+  // Handle idempotency result
+  if (!idempotencyResult.success) {
+    // Return cached result if duplicate with valid postId
+    if (idempotencyResult.cached && 'postId' in idempotencyResult.cached) {
+      revalidatePath('/')
+      redirect(`/post/${idempotencyResult.cached.postId}`)
+    }
+    return { error: idempotencyResult.error }
   }
 
-  // Record create transaction (with inscription txid)
-  await prisma.transaction.create({
-    data: {
-      action: 'Create',
-      amount: 0,
-      txid: inscriptionTxid,
-      confirmed: false,  // Will be confirmed on-chain
-      description: `Created post: ${title || 'Reply'}`,
-      userId: session.userId,
-      postId: post.id
-    }
-  })
-
-  // Notify followers of new post
-  const creator = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { username: true }
-  })
-  if (creator) {
-    // For replies, notify the parent post owner
-    if (replyToPost) {
-      await notifyReplyCreated(replyToPost.id, post.id, session.userId, creator.username)
-    } else {
-      // For regular posts, notify followers
-      await notifyFollowersOfNewPost(session.userId, creator.username, post.id, title || '', body)
-    }
+  // Check for error in result
+  if ('error' in idempotencyResult.result) {
+    return idempotencyResult.result
   }
 
   revalidatePath('/')
-  redirect(`/post/${post.id}`)
+  redirect(`/post/${idempotencyResult.result.postId}`)
 }
 
 // DEPRECATED: This function uses simulated balance.
@@ -224,86 +289,127 @@ export async function recordLock(params: {
     return { error: 'Amount must be positive' }
   }
 
+  // Griefing protection: enforce minimum lock amount
+  if (satoshis < MIN_LOCK_AMOUNT_SATS) {
+    return { error: `Minimum lock amount is ${MIN_LOCK_AMOUNT_SATS.toLocaleString()} sats` }
+  }
+
   if (durationBlocks < 1 || durationBlocks > MAX_LOCK_DURATION_BLOCKS) {
     return { error: 'Invalid lock duration' }
   }
 
-  // Verify post exists
-  const post = await prisma.post.findUnique({
-    where: { id: postId }
-  })
-
-  if (!post) {
-    return { error: 'Post not found' }
-  }
-
-  // Get current block from blockchain
-  const blockchainState = await prisma.blockchainState.findUnique({
-    where: { id: 'singleton' }
-  })
-  const currentBlock = blockchainState?.currentBlock || 0
-
-  // Calculate initial wrootz
-  const initialTu = calculateWrootz(amount, durationBlocks)
-
-  // Create lock record (no balance deduction since it's on-chain)
-  await prisma.$transaction([
-    prisma.lock.create({
-      data: {
-        amount,
-        satoshis,
-        durationBlocks,
-        startBlock: currentBlock,
-        remainingBlocks: durationBlocks,
-        initialTu,
-        currentTu: initialTu,
-        tag,
-        txid,
-        lockAddress,
-        userId: session.userId,
-        postId
-      }
-    }),
-    prisma.post.update({
-      where: { id: postId },
-      data: {
-        totalTu: { increment: initialTu }
-      }
-    }),
-    prisma.transaction.create({
-      data: {
-        action: 'Lock',
-        amount,
-        satoshis,
-        txid,
-        confirmed: false, // Will be updated when confirmed on-chain
-        description: `Locked ${satoshis.toLocaleString()} sats for ${durationBlocks} blocks${tag ? ` with tag: ${tag}` : ''}`,
-        userId: session.userId,
-        postId
-      }
+  // Use txid as idempotency key - prevents duplicate lock records for same transaction
+  const idempotencyKey = generateIdempotencyKey('recordLock', txid)
+  const idempotencyResult = await withIdempotencyAndLocking(idempotencyKey, async () => {
+    // Check if lock with this txid already exists in database
+    const existingLock = await prisma.lock.findFirst({
+      where: { txid }
     })
-  ])
+    if (existingLock) {
+      return { success: true, txid, duplicate: true }
+    }
 
-  // Get locker's username for notifications
-  const locker = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { username: true }
+    // Verify post exists and get sale info
+    const post = await prisma.post.findUnique({
+      where: { id: postId }
+    })
+
+    if (!post) {
+      return { error: 'Post not found' }
+    }
+
+    // Additional griefing protection for posts listed for sale:
+    // Lock must be at least MIN_LOCK_PERCENTAGE_FOR_SALE of the sale price
+    // This prevents attackers from locking 1 sat for 1 year to freeze a sale
+    if (post.forSale && post.salePrice > 0) {
+      const salePriceInSats = post.salePrice * SATS_PER_BSV
+      const minLockForSale = Math.max(MIN_LOCK_AMOUNT_SATS, Math.ceil(salePriceInSats * MIN_LOCK_PERCENTAGE_FOR_SALE))
+      if (satoshis < minLockForSale) {
+        return {
+          error: `For posts listed for sale, minimum lock is ${minLockForSale.toLocaleString()} sats (${(MIN_LOCK_PERCENTAGE_FOR_SALE * 100).toFixed(1)}% of sale price)`
+        }
+      }
+    }
+
+    // Get current block from blockchain
+    const blockchainState = await prisma.blockchainState.findUnique({
+      where: { id: 'singleton' }
+    })
+    const currentBlock = blockchainState?.currentBlock || 0
+
+    // Calculate initial wrootz
+    const initialTu = calculateWrootz(amount, durationBlocks)
+
+    // Create lock record (no balance deduction since it's on-chain)
+    await prisma.$transaction([
+      prisma.lock.create({
+        data: {
+          amount,
+          satoshis,
+          durationBlocks,
+          startBlock: currentBlock,
+          remainingBlocks: durationBlocks,
+          initialTu,
+          currentTu: initialTu,
+          tag,
+          txid,
+          lockAddress,
+          userId: session.userId,
+          postId
+        }
+      }),
+      prisma.post.update({
+        where: { id: postId },
+        data: {
+          totalTu: { increment: initialTu }
+        }
+      }),
+      prisma.transaction.create({
+        data: {
+          action: 'Lock',
+          amount,
+          satoshis,
+          txid,
+          confirmed: false, // Will be updated when confirmed on-chain
+          description: `Locked ${satoshis.toLocaleString()} sats for ${durationBlocks} blocks${tag ? ` with tag: ${tag}` : ''}`,
+          userId: session.userId,
+          postId
+        }
+      })
+    ])
+
+    // Get locker's username for notifications
+    const locker = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { username: true }
+    })
+
+    if (locker) {
+      // Notify post owner
+      await notifyLockOnPost(postId, locker.username, session.userId)
+
+      // Notify tag followers if there's a tag
+      if (tag) {
+        await notifyTagFollowers(tag, postId, post.title, session.userId, locker.username, post.body)
+      }
+    }
+
+    return { success: true, txid }
   })
 
-  if (locker) {
-    // Notify post owner
-    await notifyLockOnPost(postId, locker.username, session.userId)
-
-    // Notify tag followers if there's a tag
-    if (tag) {
-      await notifyTagFollowers(tag, postId, post.title, session.userId, locker.username, post.body)
+  // Handle idempotency result
+  if (!idempotencyResult.success) {
+    // Return cached result if it's a duplicate with valid result
+    if (idempotencyResult.cached && 'success' in idempotencyResult.cached) {
+      return idempotencyResult.cached
     }
+    return { error: idempotencyResult.error }
   }
 
   revalidatePath(`/post/${postId}`)
   revalidatePath('/')
 
-  return { success: true, txid }
+  return idempotencyResult.result
 }
 
 // TODO: Tipping on mainnet requires wallet integration

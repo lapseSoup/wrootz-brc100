@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/app/lib/db'
 import { verifyLock } from '@/app/lib/blockchain-verify'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/app/lib/rate-limit'
 
 /**
  * GET /api/verify/lock/[txid]
@@ -17,6 +18,12 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ txid: string }> }
 ) {
+  // Apply rate limiting (verification is resource-intensive)
+  const rateLimit = checkRateLimit(request, RATE_LIMITS.verify)
+  if (!rateLimit.allowed) {
+    return rateLimitResponse(rateLimit.resetIn)
+  }
+
   try {
     const { txid } = await params
 
@@ -91,6 +98,10 @@ export async function GET(
         expired: lock.expired,
         postId: lock.postId,
         postTitle: lock.post?.title
+      }
+    }, {
+      headers: {
+        'X-RateLimit-Remaining': String(rateLimit.remaining),
       }
     })
   } catch (error) {

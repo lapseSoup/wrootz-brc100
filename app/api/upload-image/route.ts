@@ -4,12 +4,10 @@ import { writeFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { validateImageFile, getExtensionForType, isAllowedImageType } from '@/app/lib/file-validation'
 
 // Max file size: 10MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024
-
-// Allowed image types
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,8 +24,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    // Validate file type
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    // Validate file type (quick filter)
+    if (!isAllowedImageType(file.type)) {
       return NextResponse.json(
         { error: 'Invalid file type. Allowed: JPEG, PNG, GIF, WebP' },
         { status: 400 }
@@ -42,8 +40,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate unique filename
-    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    // Convert file to buffer
+    const bytes = await file.arrayBuffer()
+    const buffer = Buffer.from(bytes)
+
+    // Validate file content using magic numbers
+    const validation = validateImageFile(buffer, file.type)
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.error || 'Invalid image file' },
+        { status: 400 }
+      )
+    }
+
+    // Generate unique filename using detected type (not user-provided extension)
+    const ext = getExtensionForType(validation.detectedType!)
     const timestamp = Date.now()
     const randomId = crypto.randomBytes(8).toString('hex')
     const filename = `${timestamp}-${randomId}.${ext}`
@@ -54,10 +65,7 @@ export async function POST(request: NextRequest) {
       await mkdir(uploadsDir, { recursive: true })
     }
 
-    // Convert file to buffer and write
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-
+    // Write file
     const filePath = path.join(uploadsDir, filename)
     await writeFile(filePath, buffer)
 

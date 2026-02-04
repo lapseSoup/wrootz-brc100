@@ -16,13 +16,18 @@
     "@bsv/wallet-toolbox": "^1.7.22",
     "@prisma/client": "^5.22.0",
     "@types/bcryptjs": "^2.4.6",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.36.2",
     "bcryptjs": "^3.0.3",
     "bsv": "^2.0.10",
     "dotenv": "^17.2.3",
+    "file-type": "^16.5.4",
+    "iron-session": "^8.0.4",
     "next": "14.2.35",
     "prisma": "^5.22.0",
     "react": "^18",
     "react-dom": "^18",
+    "swr": "^2.4.0",
     "yours-wallet-provider": "^3.7.0"
   },
   "devDependencies": {

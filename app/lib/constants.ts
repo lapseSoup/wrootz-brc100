@@ -8,6 +8,15 @@ export const SATS_PER_BSV = 100_000_000
 export const MAX_LOCK_DURATION_BLOCKS = 52560 // 1 year max (365 days * 144 blocks/day)
 export const DEFAULT_LOCK_AMOUNT_SATS = 10000 // Default lock amount in sats
 
+// Griefing protection: minimum lock amount to prevent spam locks
+// Set to 1000 sats (0.00001 BSV) as a reasonable minimum
+export const MIN_LOCK_AMOUNT_SATS = 1000
+
+// For posts listed for sale, minimum lock must be at least this percentage
+// of the sale price to prevent "griefing" by locking 1 sat for long periods
+// to freeze the sale. Set to 0.1% (0.001) of sale price
+export const MIN_LOCK_PERCENTAGE_FOR_SALE = 0.001
+
 // Unit types
 export type DisplayUnit = 'sats' | 'bsv'
 
