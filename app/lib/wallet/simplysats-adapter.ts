@@ -37,7 +37,7 @@ export class SimplySatsAdapter implements WalletProvider {
   /**
    * Make an HTTP API call to Simply Sats
    */
-  private async api<T>(method: string, args: any = {}): Promise<T> {
+  private async api<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
     const response = await fetch(`${SIMPLY_SATS_URL}/${method}`, {
       method: 'POST',
       headers: {
@@ -232,25 +232,8 @@ export class SimplySatsAdapter implements WalletProvider {
         throw new Error('Lock transaction creation failed - no txid returned')
       }
 
-      // If the wallet supports ordinal linking, create the OP_RETURN separately
-      // Otherwise, the lock is still valid without it
-      if (ordinalOrigin) {
-        try {
-          await this.api<{ txid: string }>('createAction', {
-            description: `Wrootz: Link lock to ordinal`,
-            outputs: [{
-              lockingScript: this.createWrootzOpReturn('lock', ordinalOrigin),
-              satoshis: 0,
-              outputDescription: `Wrootz lock reference to ordinal ${ordinalOrigin}`
-            }],
-            labels: ['lock-reference', 'wrootz']
-          })
-        } catch (linkError) {
-          // Non-fatal: the lock is valid even without the OP_RETURN link
-          console.warn('Could not create ordinal link OP_RETURN:', linkError)
-        }
-      }
-
+      // Simply Sats now includes the OP_RETURN in the lock transaction itself
+      // when ordinalOrigin is provided in metadata, so no need for separate tx
       console.log('Lock created:', result.txid)
 
       return {
@@ -511,14 +494,6 @@ export class SimplySatsAdapter implements WalletProvider {
     const pubKeyHash = decoded.slice(1)
     const pubKeyHashHex = Buffer.from(pubKeyHash).toString('hex')
     return '76a914' + pubKeyHashHex + '88ac'
-  }
-
-  private createWrootzOpReturn(action: string, data: string): string {
-    let script = '6a00'
-    script += this.pushData(Buffer.from('wrootz').toString('hex'))
-    script += this.pushData(Buffer.from(action).toString('hex'))
-    script += this.pushData(Buffer.from(data).toString('hex'))
-    return script
   }
 
   private decodeBase58Check(str: string): Uint8Array {
