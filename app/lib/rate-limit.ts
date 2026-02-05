@@ -1,18 +1,27 @@
 /**
  * Rate limiting utilities for API endpoints
- * Uses in-memory rate limiting for development
- * Can be upgraded to Redis-based (@upstash/ratelimit) for production
+ *
+ * Uses Upstash Redis when available (production), falls back to in-memory (development).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { Redis } from '@upstash/redis'
+import { Ratelimit } from '@upstash/ratelimit'
 
 interface RateLimitEntry {
   count: number
   resetTime: number
 }
 
-// In-memory store for rate limiting (works for single-instance deployments)
-// For multi-instance production, use Redis (@upstash/ratelimit)
+// Initialize Redis client if credentials are available
+const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    })
+  : null
+
+// In-memory store for rate limiting (fallback for development)
 const rateLimitStore = new Map<string, RateLimitEntry>()
 
 // Clean up old entries periodically
@@ -63,15 +72,42 @@ function getClientId(request: NextRequest): string {
   return ip
 }
 
+// Create Upstash rate limiters for different endpoint types
+const rateLimiters = redis ? {
+  api: new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(60, '60 s'),
+    prefix: 'wrootz:api',
+  }),
+  auth: new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, '60 s'),
+    prefix: 'wrootz:auth',
+  }),
+  upload: new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, '300 s'),
+    prefix: 'wrootz:upload',
+  }),
+  verify: new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(30, '60 s'),
+    prefix: 'wrootz:verify',
+  }),
+  feed: new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(120, '60 s'),
+    prefix: 'wrootz:feed',
+  }),
+} : null
+
 /**
- * Check rate limit and return result
+ * Check rate limit using in-memory store (fallback)
  */
-export function checkRateLimit(
-  request: NextRequest,
-  config: RateLimitConfig = RATE_LIMITS.api
+function checkInMemoryRateLimit(
+  key: string,
+  config: RateLimitConfig
 ): { allowed: boolean; remaining: number; resetIn: number } {
-  const clientId = getClientId(request)
-  const key = `${config.prefix || 'default'}:${clientId}`
   const now = Date.now()
   const windowMs = config.windowSeconds * 1000
 
@@ -105,6 +141,36 @@ export function checkRateLimit(
 }
 
 /**
+ * Check rate limit and return result
+ * Uses Redis when available, falls back to in-memory
+ */
+export async function checkRateLimit(
+  request: NextRequest,
+  config: RateLimitConfig = RATE_LIMITS.api
+): Promise<{ allowed: boolean; remaining: number; resetIn: number }> {
+  const clientId = getClientId(request)
+  const key = `${config.prefix || 'default'}:${clientId}`
+
+  // Try Redis-based rate limiting first
+  if (rateLimiters && config.prefix && config.prefix in rateLimiters) {
+    try {
+      const limiter = rateLimiters[config.prefix as keyof typeof rateLimiters]
+      const result = await limiter.limit(key)
+      return {
+        allowed: result.success,
+        remaining: result.remaining,
+        resetIn: Math.ceil((result.reset - Date.now()) / 1000),
+      }
+    } catch (error) {
+      console.error('Redis rate limit error, falling back to in-memory:', error)
+    }
+  }
+
+  // Fallback to in-memory rate limiting
+  return checkInMemoryRateLimit(key, config)
+}
+
+/**
  * Create rate limit response with appropriate headers
  */
 export function rateLimitResponse(resetIn: number): NextResponse {
@@ -131,7 +197,7 @@ export function withRateLimit(
   config: RateLimitConfig = RATE_LIMITS.api
 ) {
   return async (request: NextRequest): Promise<NextResponse> => {
-    const result = checkRateLimit(request, config)
+    const result = await checkRateLimit(request, config)
 
     if (!result.allowed) {
       return rateLimitResponse(result.resetIn)

@@ -8,7 +8,7 @@ export const revalidate = 0
 
 export async function GET(request: NextRequest) {
   // Apply rate limiting
-  const rateLimit = checkRateLimit(request, RATE_LIMITS.api)
+  const rateLimit = await checkRateLimit(request, RATE_LIMITS.api)
   if (!rateLimit.allowed) {
     return rateLimitResponse(rateLimit.resetIn)
   }

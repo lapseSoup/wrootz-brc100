@@ -5,9 +5,21 @@
  * - Users double-click buttons
  * - Network issues cause retries
  * - Browser refreshes during submission
+ *
+ * Uses Upstash Redis when available (production), falls back to in-memory (development).
  */
 
-// In-memory store for idempotency keys (would use Redis in production)
+import { Redis } from '@upstash/redis'
+
+// Initialize Redis client if credentials are available
+const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    })
+  : null
+
+// In-memory store for idempotency keys (fallback for development)
 const idempotencyStore = new Map<string, {
   result: unknown
   expiresAt: number
@@ -40,14 +52,35 @@ export interface IdempotencyResult<T> {
   result?: T
 }
 
+// Redis key TTL in seconds
+const KEY_TTL_SECONDS = 24 * 60 * 60 // 24 hours
+const REDIS_PREFIX = 'wrootz:idempotency:'
+
 /**
  * Check if an operation with this key has already been processed
+ * Uses Redis when available, falls back to in-memory
  * @param key Unique idempotency key (typically: userId + action + timestamp/nonce)
  * @returns Whether this is a duplicate and the cached result if so
  */
-export function checkIdempotency<T>(key: string): IdempotencyResult<T> {
-  const existing = idempotencyStore.get(key)
+export async function checkIdempotency<T>(key: string): Promise<IdempotencyResult<T>> {
+  // Try Redis first
+  if (redis) {
+    try {
+      const existing = await redis.get(`${REDIS_PREFIX}${key}`)
+      if (existing) {
+        return {
+          isDuplicate: true,
+          result: existing as T
+        }
+      }
+      return { isDuplicate: false }
+    } catch (error) {
+      console.error('Redis idempotency check error, falling back to in-memory:', error)
+    }
+  }
 
+  // Fallback to in-memory
+  const existing = idempotencyStore.get(key)
   if (existing && existing.expiresAt > Date.now()) {
     return {
       isDuplicate: true,
@@ -60,10 +93,22 @@ export function checkIdempotency<T>(key: string): IdempotencyResult<T> {
 
 /**
  * Store the result of an operation for idempotency checking
+ * Uses Redis when available, falls back to in-memory
  * @param key Unique idempotency key
  * @param result The result to cache
  */
-export function storeIdempotencyResult(key: string, result: unknown): void {
+export async function storeIdempotencyResult(key: string, result: unknown): Promise<void> {
+  // Try Redis first
+  if (redis) {
+    try {
+      await redis.set(`${REDIS_PREFIX}${key}`, result, { ex: KEY_TTL_SECONDS })
+      return
+    } catch (error) {
+      console.error('Redis idempotency store error, falling back to in-memory:', error)
+    }
+  }
+
+  // Fallback to in-memory
   idempotencyStore.set(key, {
     result,
     expiresAt: Date.now() + KEY_TTL
@@ -89,7 +134,7 @@ export async function withIdempotency<T>(
   operation: () => Promise<T>
 ): Promise<T> {
   // Check for existing result
-  const check = checkIdempotency<T>(key)
+  const check = await checkIdempotency<T>(key)
   if (check.isDuplicate && check.result !== undefined) {
     return check.result
   }
@@ -98,7 +143,7 @@ export async function withIdempotency<T>(
   const result = await operation()
 
   // Store result for future duplicate checks
-  storeIdempotencyResult(key, result)
+  await storeIdempotencyResult(key, result)
 
   return result
 }
@@ -129,7 +174,7 @@ export async function withIdempotencyAndLocking<T>(
   operation: () => Promise<T>
 ): Promise<{ success: true; result: T } | { success: false; error: string; cached?: T }> {
   // Check for cached result first
-  const check = checkIdempotency<T>(key)
+  const check = await checkIdempotency<T>(key)
   if (check.isDuplicate && check.result !== undefined) {
     return { success: false, error: 'Duplicate request', cached: check.result }
   }
@@ -141,7 +186,7 @@ export async function withIdempotencyAndLocking<T>(
 
   try {
     const result = await operation()
-    storeIdempotencyResult(key, result)
+    await storeIdempotencyResult(key, result)
     return { success: true, result }
   } finally {
     clearInProgress(key)

@@ -2,10 +2,12 @@
 
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
-import { updateLockStatuses, getCurrentBlock } from './helpers'
+import { updateLockStatusesIfNeeded } from '@/app/lib/lock-updater'
+import { getCurrentBlock } from './helpers'
 
 /**
  * Get posts with computed TU values and filters.
+ * Supports cursor-based pagination for efficient infinite scroll.
  */
 export async function getPostsWithTU(options?: {
   search?: string
@@ -13,9 +15,10 @@ export async function getPostsWithTU(options?: {
   filter?: 'all' | 'following' | 'rising' | 'for-sale' | 'discover'
   archive?: boolean
   showHidden?: boolean
-}) {
-  // Update simulation first
-  await updateLockStatuses()
+  cursor?: string // Post ID for pagination
+}): Promise<{ posts: ReturnType<typeof mapPost>[]; nextCursor: string | null }> {
+  // Non-blocking update check - don't wait if recent update exists
+  updateLockStatusesIfNeeded().catch(console.error)
 
   const session = await getSession()
 
@@ -46,7 +49,7 @@ export async function getPostsWithTU(options?: {
     })
     const hiddenIds = hidden.map(h => h.postId)
     if (hiddenIds.length === 0) {
-      return [] // No hidden posts
+      return { posts: [], nextCursor: null } // No hidden posts
     }
     conditions.push({ id: { in: hiddenIds } })
   }
@@ -87,14 +90,14 @@ export async function getPostsWithTU(options?: {
   if (options?.filter === 'rising') {
     // Special handling for rising - we need to get posts sorted by recent wrootz gains
     const risingPosts = await getRisingPosts(options?.limit || 50)
-    if (risingPosts.length === 0) return []
+    if (risingPosts.length === 0) return { posts: [], nextCursor: null }
 
     // Filter out hidden posts from rising
     const risingPostIds = risingPosts
       .filter(p => !hiddenPostIds.includes(p.id))
       .map(p => p.id)
 
-    if (risingPostIds.length === 0) return []
+    if (risingPostIds.length === 0) return { posts: [], nextCursor: null }
 
     // Add search filter if present
     const risingWhere = options?.search
@@ -120,15 +123,29 @@ export async function getPostsWithTU(options?: {
         locks: {
           where: { expired: false },
           include: { user: { select: { id: true, username: true } } }
+        },
+        incomingLinks: {
+          where: { type: 'reply' },
+          select: { id: true }
+        },
+        outgoingLinks: {
+          where: { type: 'reply' },
+          include: {
+            targetPost: {
+              select: { id: true, title: true }
+            }
+          },
+          take: 1
         }
       }
     })
 
     // Sort by the rising order (most recent wrootz gains first)
     const postMap = new Map(posts.map(p => [p.id, p]))
-    return risingPostIds
+    const resultPosts = risingPostIds
       .filter(id => postMap.has(id))
-      .map(id => postMap.get(id)!)
+      .map(id => mapPost(postMap.get(id)!))
+    return { posts: resultPosts, nextCursor: null } // Rising doesn't support pagination yet
   } else if (options?.filter === 'for-sale') {
     conditions.push({ forSale: true })
   } else if (options?.filter === 'discover') {
@@ -152,7 +169,7 @@ export async function getPostsWithTU(options?: {
 
     if (tagNames.length === 0 && userIds.length === 0) {
       // Not following anything, return empty
-      return []
+      return { posts: [], nextCursor: null }
     }
 
     conditions.push({
@@ -181,6 +198,9 @@ export async function getPostsWithTU(options?: {
   const orderBy = options?.filter === 'discover' || options?.archive
     ? { createdAt: 'desc' as const }  // Newest first for discover and archive
     : { totalTu: 'desc' as const }     // Most wrootz first otherwise
+
+  // Fetch one extra for cursor pagination
+  const take = (options?.limit || 50) + 1
 
   const posts = await prisma.post.findMany({
     where,
@@ -212,30 +232,51 @@ export async function getPostsWithTU(options?: {
       }
     },
     orderBy,
-    take: options?.limit || 50
+    take,
+    // Cursor-based pagination
+    ...(options?.cursor && {
+      cursor: { id: options.cursor },
+      skip: 1 // Skip the cursor post itself
+    })
   })
+
+  // Check if there are more results
+  const hasMore = posts.length > (options?.limit || 50)
+  const resultPosts = hasMore ? posts.slice(0, -1) : posts
+  const nextCursor = hasMore ? resultPosts[resultPosts.length - 1]?.id || null : null
 
   // Add computed fields
-  return posts.map(post => {
-    // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
-    const actualTotalTu = post.locks.reduce((sum, lock) => sum + lock.currentTu, 0)
+  return {
+    posts: resultPosts.map(mapPost),
+    nextCursor
+  }
+}
 
-    return {
-      ...post,
-      // Override totalTu with the calculated value from active locks
-      totalTu: actualTotalTu,
-      replyCount: post.incomingLinks.length,
-      replyTo: post.outgoingLinks[0]?.targetPost || null
-    }
-  })
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PostWithRelations = any
+
+/**
+ * Helper function to map post data with computed fields
+ */
+function mapPost(post: PostWithRelations) {
+  // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
+  const actualTotalTu = (post.locks || []).reduce((sum: number, lock: { currentTu: number }) => sum + lock.currentTu, 0)
+
+  return {
+    ...post,
+    // Override totalTu with the calculated value from active locks
+    totalTu: actualTotalTu,
+    replyCount: (post.incomingLinks || []).length,
+    replyTo: post.outgoingLinks?.[0]?.targetPost || null
+  }
 }
 
 /**
  * Get a single post by ID with all related data.
  */
 export async function getPostById(id: string) {
-  // Update simulation first
-  await updateLockStatuses()
+  // Non-blocking update check
+  updateLockStatusesIfNeeded().catch(console.error)
 
   const post = await prisma.post.findUnique({
     where: { id },

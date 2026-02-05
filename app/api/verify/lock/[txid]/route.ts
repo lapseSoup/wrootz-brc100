@@ -19,7 +19,7 @@ export async function GET(
   { params }: { params: Promise<{ txid: string }> }
 ) {
   // Apply rate limiting (verification is resource-intensive)
-  const rateLimit = checkRateLimit(request, RATE_LIMITS.verify)
+  const rateLimit = await checkRateLimit(request, RATE_LIMITS.verify)
   if (!rateLimit.allowed) {
     return rateLimitResponse(rateLimit.resetIn)
   }

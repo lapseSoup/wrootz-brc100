@@ -2,6 +2,14 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Database configuration
+// Development: SQLite (DATABASE_URL=file:./dev.db)
+// Production: PostgreSQL (DATABASE_URL=postgresql://user:pass@host:5432/wrootz)
+//
+// To switch databases:
+// 1. Update DATABASE_URL in .env
+// 2. Run: npx prisma generate
+// 3. Run: npx prisma migrate dev (or prisma db push for quick dev)
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")

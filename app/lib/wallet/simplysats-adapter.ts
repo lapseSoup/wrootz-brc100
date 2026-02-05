@@ -38,15 +38,57 @@ export class SimplySatsAdapter implements WalletProvider {
   private disconnectCallbacks: (() => void)[] = []
 
   constructor() {
-    // Check for stored connection
+    // Check for stored identity key (public, not sensitive)
+    // Session token is now stored in httpOnly cookie via /api/wallet/connect
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('simplysats_identity_key')
-      const storedToken = localStorage.getItem('simplysats_session_token')
       if (stored) {
         this.identityKey = stored
-        this.sessionToken = storedToken
+        // Session token will be fetched from server when needed
         this._isConnected = true
+        // Fetch session token from server on init
+        this.loadSessionToken()
       }
+    }
+  }
+
+  /**
+   * Load session token from secure server-side storage
+   */
+  private async loadSessionToken(): Promise<void> {
+    try {
+      const response = await fetch('/api/wallet/connect')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.connected && data.identityKey === this.identityKey) {
+          // Token is stored server-side, we just verify connection
+          this._isConnected = true
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load wallet session:', error)
+    }
+  }
+
+  /**
+   * Save session token to secure server-side storage
+   */
+  private async saveSessionToken(token: string, identityKey: string): Promise<void> {
+    try {
+      const response = await fetch('/api/wallet/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletType: 'simplysats',
+          sessionToken: token,
+          identityKey,
+        }),
+      })
+      if (!response.ok) {
+        console.warn('Failed to save wallet session to server')
+      }
+    } catch (error) {
+      console.error('Failed to save wallet session:', error)
     }
   }
 
@@ -154,13 +196,6 @@ export class SimplySatsAdapter implements WalletProvider {
         'Authentication check timed out.'
       )
 
-      // Store session token if provided
-      if (authResult.token) {
-        this.sessionToken = authResult.token
-        localStorage.setItem('simplysats_session_token', authResult.token)
-        console.log('Session token acquired')
-      }
-
       // Get the user's identity public key
       const { publicKey } = await this.withTimeout(
         this.api<{ publicKey: string }>('getPublicKey', { identityKey: true }),
@@ -168,9 +203,17 @@ export class SimplySatsAdapter implements WalletProvider {
         'Getting public key timed out. Please approve the request in Simply Sats.'
       )
 
+      // Store session token securely via API (httpOnly cookie)
+      if (authResult.token) {
+        this.sessionToken = authResult.token
+        await this.saveSessionToken(authResult.token, publicKey)
+        console.log('Session token acquired and stored securely')
+      }
+
       // Store the connection state
       this._isConnected = true
       this.identityKey = publicKey
+      // Only store identity key locally (it's a public key, not sensitive)
       localStorage.setItem('simplysats_identity_key', publicKey)
 
       console.log('Connected to Simply Sats, identity key:', publicKey.slice(0, 16) + '...')
@@ -200,7 +243,12 @@ export class SimplySatsAdapter implements WalletProvider {
     this.sessionToken = null
     if (typeof window !== 'undefined') {
       localStorage.removeItem('simplysats_identity_key')
-      localStorage.removeItem('simplysats_session_token')
+      // Clear secure session via API
+      try {
+        await fetch('/api/wallet/connect', { method: 'DELETE' })
+      } catch (error) {
+        console.error('Failed to clear wallet session:', error)
+      }
     }
     this.disconnectCallbacks.forEach(cb => cb())
   }

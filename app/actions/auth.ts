@@ -3,11 +3,17 @@
 import bcrypt from 'bcryptjs'
 import prisma from '@/app/lib/db'
 import { setSession, clearSession, getSession } from '@/app/lib/session'
-// NOTE: STARTING_BALANCE not used in mainnet - users fund with real BSV
-// import { STARTING_BALANCE } from '@/app/lib/constants'
+import { validatePassword } from '@/app/lib/password-policy'
+import { checkAuthRateLimit } from '@/app/lib/server-action-rate-limit'
 import { redirect } from 'next/navigation'
 
 export async function register(formData: FormData) {
+  // Rate limit check FIRST
+  const rateLimit = await checkAuthRateLimit()
+  if (!rateLimit.success) {
+    return { error: `Too many attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
+  }
+
   const username = formData.get('username') as string
   const password = formData.get('password') as string
   const confirmPassword = formData.get('confirmPassword') as string
@@ -20,8 +26,10 @@ export async function register(formData: FormData) {
     return { error: 'Username must be between 3 and 20 characters' }
   }
 
-  if (password.length < 4) {
-    return { error: 'Password must be at least 4 characters' }
+  // Validate password strength
+  const passwordCheck = validatePassword(password)
+  if (!passwordCheck.valid) {
+    return { error: passwordCheck.error }
   }
 
   if (password !== confirmPassword) {
@@ -57,6 +65,12 @@ export async function register(formData: FormData) {
 }
 
 export async function login(formData: FormData) {
+  // Rate limit check FIRST
+  const rateLimit = await checkAuthRateLimit()
+  if (!rateLimit.success) {
+    return { error: `Too many attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
+  }
+
   const username = formData.get('username') as string
   const password = formData.get('password') as string
 

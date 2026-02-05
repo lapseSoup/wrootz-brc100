@@ -3,9 +3,29 @@
 import { getIronSession, IronSession } from 'iron-session'
 import { cookies } from 'next/headers'
 
+/**
+ * Get session password with security validation
+ * - Fails fast in production if SESSION_SECRET is not set
+ * - Warns and uses dev fallback in development only
+ */
+const getSessionPassword = (): string => {
+  const secret = process.env.SESSION_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('CRITICAL: SESSION_SECRET environment variable is required in production')
+    }
+    console.warn('WARNING: Using development session secret. Set SESSION_SECRET in .env')
+    return 'dev_secret_32_chars_for_local_only!'
+  }
+  if (secret.length < 32) {
+    throw new Error('SESSION_SECRET must be at least 32 characters')
+  }
+  return secret
+}
+
 // Session configuration
 const SESSION_OPTIONS = {
-  password: process.env.SESSION_SECRET || 'complex_password_at_least_32_characters_long_for_development_only',
+  password: getSessionPassword(),
   cookieName: 'wrootz_session',
   cookieOptions: {
     httpOnly: true,

@@ -38,7 +38,8 @@ export default async function Home({
     // For tag searches, rank by tag-specific wrootz (combined for multiple tags)
     posts = await getPostsByTag(searchTags)
   } else {
-    posts = await getPostsWithTU({ search, filter, archive, showHidden })
+    const result = await getPostsWithTU({ search, filter, archive, showHidden })
+    posts = result.posts
   }
 
   const relatedTags = searchTags.length > 0 ? await getRelatedTags(searchTags) : []
