@@ -115,6 +115,8 @@ export default function ImageUploadSection({
         <div>
           {imagePreview ? (
             <div className="relative">
+              {/* Using native img for upload preview - dynamic base64/blob URL */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={imagePreview}
                 alt="Upload preview"

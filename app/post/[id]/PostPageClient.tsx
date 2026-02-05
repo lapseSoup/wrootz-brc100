@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { formatWrootz, formatSats, bsvToSats, formatRelativeTime } from '@/app/lib/constants'
 import LockForm from '@/app/components/LockForm'
 import ReplyForm from '@/app/components/ReplyForm'
@@ -13,73 +14,7 @@ import TransactionHistory from './TransactionHistory'
 import RepliesList from './RepliesList'
 import YouTubeEmbed from '@/app/components/YouTubeEmbed'
 import VerificationBadge from '@/app/components/VerificationBadge'
-
-interface Lock {
-  id: string
-  amount: number
-  initialTu: number
-  currentTu: number
-  durationBlocks: number
-  remainingBlocks: number
-  startBlock: number
-  tag: string | null
-  expired: boolean
-  createdAt: string
-  user: { id: string; username: string }
-}
-
-interface Reply {
-  id: string
-  title: string
-  body: string
-  totalTu: number
-  createdAt: Date
-  creator: { id: string; username: string }
-  owner: { id: string; username: string }
-  locks: { currentTu: number }[]
-  replyCount: number
-}
-
-interface Post {
-  id: string
-  title: string
-  body: string
-  imageUrl: string | null
-  videoUrl: string | null
-  totalTu: number
-  forSale: boolean
-  salePrice: number | null
-  lockerSharePercentage: number
-  createdAt: string
-  creator: { id: string; username: string }
-  owner: { id: string; username: string }
-  ownerId: string
-  // 1Sat Ordinal fields
-  inscriptionId: string | null
-  inscriptionTxid: string | null
-  contentHash: string | null
-}
-
-interface User {
-  id: string
-  username: string
-  cachedBalance: number
-}
-
-interface ReplyParent {
-  id: string
-  title: string
-  creator: { username: string }
-}
-
-interface Transaction {
-  id: string
-  action: string
-  amount: number
-  description: string | null
-  createdAt: string
-  user: { id: string; username: string }
-}
+import type { Lock, Reply, Post, User, ReplyParent, Transaction } from '@/app/lib/types'
 
 interface PostPageClientProps {
   initialPost: Post
@@ -219,10 +154,13 @@ export default function PostPageClient({
             {/* Image - show full image without cropping */}
             {post.imageUrl && (
               <div className="mt-5 -mx-5 bg-[var(--surface-2)] flex justify-center">
-                <img
+                <Image
                   src={post.imageUrl}
                   alt={post.title}
+                  width={800}
+                  height={600}
                   className="max-w-full max-h-[800px] w-auto h-auto object-contain"
+                  unoptimized
                 />
               </div>
             )}

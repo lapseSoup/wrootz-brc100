@@ -14,7 +14,7 @@ import { verifyLock, verifyInscription, type LockVerification } from '@/app/lib/
  * - Aggregate stats (total verified wrootz, verified lock count)
  */
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {

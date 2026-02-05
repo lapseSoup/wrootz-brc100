@@ -3,29 +3,12 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { formatWrootz } from '@/app/lib/constants'
-
-interface Lock {
-  id: string
-  amount: number
-  initialTu: number
-  currentTu: number
-  durationBlocks: number
-  startBlock: number
-  remainingBlocks: number
-  tag: string | null
-  expired: boolean
-  user: { username: string }
-}
+import type { Lock, WrootzDataPoint } from '@/app/lib/types'
 
 interface SidebarHistoryProps {
   activeLocks: Lock[]
   expiredLocks: Lock[]
   currentBlock: number
-}
-
-interface DataPoint {
-  block: number
-  wrootz: number
 }
 
 export default function SidebarHistory({ activeLocks, expiredLocks, currentBlock }: SidebarHistoryProps) {
@@ -40,7 +23,7 @@ export default function SidebarHistory({ activeLocks, expiredLocks, currentBlock
     if (allLocks.length === 0) return []
 
     const earliestBlock = Math.min(...allLocks.map(l => l.startBlock))
-    const dataPoints: DataPoint[] = []
+    const dataPoints: WrootzDataPoint[] = []
 
     const blockRange = currentBlock - earliestBlock
     const sampleInterval = Math.max(1, Math.floor(blockRange / 30)) // Max 30 data points for compact graph

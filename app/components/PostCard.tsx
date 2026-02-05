@@ -1,34 +1,10 @@
+import { memo, useMemo } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { formatWrootz, formatSats, bsvToSats, formatRelativeTime } from '@/app/lib/constants'
 import CopyLinkButton from './CopyLinkButton'
 import HidePostButton from './HidePostButton'
-
-interface Lock {
-  id: string
-  currentTu: number
-  tag: string | null
-  user: { username: string }
-}
-
-interface Post {
-  id: string
-  title: string
-  body: string
-  imageUrl: string | null
-  videoUrl?: string | null
-  totalTu: number
-  forSale: boolean
-  salePrice: number
-  lockerSharePercentage: number
-  owner: { username: string }
-  creator: { username: string }
-  locks: Lock[]
-  createdAt: Date
-  replyCount?: number
-  replyTo?: { id: string; title: string } | null
-  tagWrootz?: number  // wrootz for specific tag(s) when doing tag search
-}
+import type { PostBasic, TagWrootz } from '@/app/lib/types'
 
 // Extract YouTube video ID from URL
 function getYouTubeVideoId(url: string): string | null {
@@ -46,24 +22,35 @@ function getYouTubeVideoId(url: string): string | null {
   return null
 }
 
-export default function PostCard({ post, searchTags, isHidden }: { post: Post; searchTags?: string[]; isHidden?: boolean }) {
+interface PostCardProps {
+  post: PostBasic
+  searchTags?: string[]
+  isHidden?: boolean
+}
+
+function PostCardComponent({ post, searchTags, isHidden }: PostCardProps) {
   // Get YouTube thumbnail if video URL exists
   const youtubeVideoId = post.videoUrl ? getYouTubeVideoId(post.videoUrl) : null
   const youtubeThumbnail = youtubeVideoId ? `https://img.youtube.com/vi/${youtubeVideoId}/mqdefault.jpg` : null
 
-  // Get top tags by wrootz
-  const tagWrootz: Record<string, number> = {}
-  for (const lock of post.locks) {
-    if (lock.tag) {
-      tagWrootz[lock.tag] = (tagWrootz[lock.tag] || 0) + lock.currentTu
+  // Memoize expensive tag calculation - runs O(n) + O(n log n) sort
+  const topTags = useMemo(() => {
+    const tagWrootz: TagWrootz = {}
+    for (const lock of post.locks) {
+      if (lock.tag) {
+        tagWrootz[lock.tag] = (tagWrootz[lock.tag] || 0) + lock.currentTu
+      }
     }
-  }
-  const topTags = Object.entries(tagWrootz)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
+    return Object.entries(tagWrootz)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+  }, [post.locks])
 
   // Preview text (truncate body)
-  const previewText = post.body.length > 120 ? post.body.slice(0, 120) + '...' : post.body
+  const previewText = useMemo(
+    () => post.body.length > 120 ? post.body.slice(0, 120) + '...' : post.body,
+    [post.body]
+  )
 
   return (
     <Link href={`/post/${post.id}`}>
@@ -182,3 +169,7 @@ export default function PostCard({ post, searchTags, isHidden }: { post: Post; s
     </Link>
   )
 }
+
+// Memoize the component to prevent unnecessary re-renders in lists
+const PostCard = memo(PostCardComponent)
+export default PostCard

@@ -2,15 +2,7 @@
 
 import Link from 'next/link'
 import { formatSats, bsvToSats, formatRelativeTime } from '@/app/lib/constants'
-
-interface Transaction {
-  id: string
-  action: string
-  amount: number
-  description: string | null
-  createdAt: string
-  user: { id: string; username: string }
-}
+import type { Transaction } from '@/app/lib/types'
 
 interface TransactionHistoryProps {
   transactions: Transaction[]

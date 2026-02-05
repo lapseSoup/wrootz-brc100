@@ -3,17 +3,7 @@
 import { useState } from 'react'
 import CollapsibleSection from '@/app/components/CollapsibleSection'
 import LockItem from './LockItem'
-
-interface Lock {
-  id: string
-  amount: number
-  initialTu: number
-  currentTu: number
-  durationBlocks: number
-  remainingBlocks: number
-  tag: string | null
-  user: { username: string }
-}
+import type { Lock } from '@/app/lib/types'
 
 interface ActiveLocksListProps {
   locks: Lock[]

@@ -31,15 +31,6 @@ export default function WalletButton() {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const truncateAddress = (addr: string) => {
-    // For BRC-100, the address is a public key (66 chars hex)
-    if (addr.length > 20) {
-      return `${addr.slice(0, 8)}...${addr.slice(-6)}`
-    }
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
-  }
-
   const handleCopyIdentityKey = () => {
     if (address) {
       navigator.clipboard.writeText(address)

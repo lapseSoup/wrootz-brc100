@@ -4,12 +4,12 @@ import { useState } from 'react'
 import RepliesList from './RepliesList'
 import ActiveLocksList from './ActiveLocksList'
 import WrootzHistory from './WrootzHistory'
+import type { Reply, Lock } from '@/app/lib/types'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 interface PostTabsProps {
-  replies: any[]
-  activeLocks: any[]
-  expiredLocks: any[]
+  replies: Reply[]
+  activeLocks: Lock[]
+  expiredLocks: Lock[]
   totalTu: number
   currentBlock: number
 }

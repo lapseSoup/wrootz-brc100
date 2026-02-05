@@ -1,12 +1,14 @@
 'use client'
 
+import { memo } from 'react'
+
 interface ProfileAvatarProps {
   username: string
   avatarUrl?: string | null
   size?: 'sm' | 'md' | 'lg'
 }
 
-export default function ProfileAvatar({ username, avatarUrl, size = 'md' }: ProfileAvatarProps) {
+function ProfileAvatarComponent({ username, avatarUrl, size = 'md' }: ProfileAvatarProps) {
   const sizeClasses = {
     sm: 'w-8 h-8 text-sm',
     md: 'w-12 h-12 text-lg',
@@ -17,6 +19,8 @@ export default function ProfileAvatar({ username, avatarUrl, size = 'md' }: Prof
 
   if (avatarUrl) {
     return (
+      // Using native img for user avatars - has onError fallback that requires DOM access
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={avatarUrl}
         alt={`${username}'s avatar`}
@@ -39,3 +43,7 @@ export default function ProfileAvatar({ username, avatarUrl, size = 'md' }: Prof
     </div>
   )
 }
+
+// Memoize to prevent unnecessary re-renders in lists
+const ProfileAvatar = memo(ProfileAvatarComponent)
+export default ProfileAvatar

@@ -22,14 +22,6 @@ export interface SessionData {
   isLoggedIn: boolean
 }
 
-// Default session values (kept for reference, iron-session handles defaults)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _defaultSession: SessionData = {
-  userId: '',
-  username: '',
-  isLoggedIn: false,
-}
-
 export async function getSession(): Promise<SessionData | null> {
   const cookieStore = await cookies()
   const session = await getIronSession<SessionData>(cookieStore, SESSION_OPTIONS)

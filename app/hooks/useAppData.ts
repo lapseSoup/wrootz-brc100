@@ -1,6 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
+import type { PostBasic, FeedFilter } from '@/app/lib/types'
 
 /**
  * Centralized data fetching hooks for the Wrootz application
@@ -80,7 +81,7 @@ export function useNotificationCount(enabled: boolean = true) {
  */
 export function useFeed(options?: {
   search?: string
-  filter?: 'all' | 'following' | 'rising' | 'for-sale' | 'discover'
+  filter?: FeedFilter
   archive?: boolean
   showHidden?: boolean
   limit?: number
@@ -96,10 +97,8 @@ export function useFeed(options?: {
   const queryString = params.toString()
   const url = `/api/feed${queryString ? `?${queryString}` : ''}`
 
-  // Using unknown[] since post shape is defined in FeedClient
   const { data, error, isLoading, mutate, isValidating } = useSWR<{
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    posts: any[]
+    posts: PostBasic[]
     searchTags?: string[]
   }>(
     url,

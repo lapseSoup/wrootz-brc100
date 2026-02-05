@@ -3,17 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { formatWrootz, formatSats, bsvToSats, blocksToTimeString } from '@/app/lib/constants'
-
-interface Lock {
-  id: string
-  amount: number
-  initialTu: number
-  currentTu: number
-  durationBlocks: number
-  remainingBlocks: number
-  tag: string | null
-  user: { username: string }
-}
+import type { Lock } from '@/app/lib/types'
 
 interface SidebarLocksProps {
   locks: Lock[]

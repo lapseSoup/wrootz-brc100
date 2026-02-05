@@ -173,6 +173,8 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
                 {/* Preview */}
                 <div className="flex items-center gap-4 mb-3">
                   {avatarPreview ? (
+                    // Using native img for preview - has onError handler for failed loads
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={avatarPreview}
                       alt="Preview"

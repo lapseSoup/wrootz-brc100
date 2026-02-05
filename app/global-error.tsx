@@ -1,13 +1,14 @@
 'use client'
 
 export default function GlobalError({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  error,
+  error: _error, // Required by Next.js but not displayed to users
   reset,
 }: {
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  // Note: error is required by Next.js error boundary convention but we don't display it
+  void _error
   return (
     <html>
       <body>

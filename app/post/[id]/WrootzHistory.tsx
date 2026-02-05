@@ -4,30 +4,13 @@ import { useState, useMemo } from 'react'
 import { formatWrootz, formatSats, bsvToSats } from '@/app/lib/constants'
 import CollapsibleSection from '@/app/components/CollapsibleSection'
 import Link from 'next/link'
-
-interface Lock {
-  id: string
-  amount: number
-  initialTu: number
-  currentTu: number
-  durationBlocks: number
-  startBlock: number
-  remainingBlocks: number
-  tag: string | null
-  expired: boolean
-  user: { username: string }
-}
+import type { Lock, WrootzDataPoint } from '@/app/lib/types'
 
 interface WrootzHistoryProps {
   activeLocks: Lock[]
   expiredLocks: Lock[]
   currentBlock: number
   embedded?: boolean
-}
-
-interface DataPoint {
-  block: number
-  wrootz: number
 }
 
 export default function WrootzHistory({ activeLocks, expiredLocks, currentBlock, embedded = false }: WrootzHistoryProps) {
@@ -44,7 +27,7 @@ export default function WrootzHistory({ activeLocks, expiredLocks, currentBlock,
 
     // Find the earliest start block and create timeline
     const earliestBlock = Math.min(...allLocks.map(l => l.startBlock))
-    const dataPoints: DataPoint[] = []
+    const dataPoints: WrootzDataPoint[] = []
 
     // Sample at reasonable intervals (every 6 blocks = 1 hour, or fewer points for long histories)
     const blockRange = currentBlock - earliestBlock

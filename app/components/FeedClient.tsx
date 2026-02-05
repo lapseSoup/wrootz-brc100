@@ -1,39 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import PostCard from './PostCard'
 import Link from 'next/link'
 import { useFeed } from '@/app/hooks/useAppData'
-
-interface Lock {
-  id: string
-  currentTu: number
-  tag: string | null
-  user: { username: string }
-}
-
-interface Post {
-  id: string
-  title: string
-  body: string
-  imageUrl: string | null
-  totalTu: number
-  forSale: boolean
-  salePrice: number
-  lockerSharePercentage: number
-  owner: { username: string }
-  creator: { username: string }
-  locks: Lock[]
-  createdAt: Date
-  replyCount?: number
-  replyTo?: { id: string; title: string } | null
-  tagWrootz?: number  // wrootz for specific tag(s) when doing tag search
-}
+import type { PostBasic, FeedFilter } from '@/app/lib/types'
 
 interface FeedClientProps {
-  initialPosts: Post[]
+  initialPosts: PostBasic[]
   search?: string
-  filter: 'all' | 'following' | 'rising' | 'for-sale' | 'discover'
+  filter: FeedFilter
   archive: boolean
   searchTags?: string[]  // tags being searched for (to display tag-specific wrootz)
   showHidden?: boolean  // whether showing hidden posts only
@@ -41,7 +17,10 @@ interface FeedClientProps {
 
 export default function FeedClient({ initialPosts, search, filter, archive, searchTags: initialSearchTags, showHidden }: FeedClientProps) {
   const [hasNewPosts, setHasNewPosts] = useState(false)
-  const [displayedPosts, setDisplayedPosts] = useState<Post[]>(initialPosts)
+  const [displayedPosts, setDisplayedPosts] = useState<PostBasic[]>(initialPosts)
+
+  // Use a ref to track the current top post ID without triggering re-renders
+  const currentTopIdRef = useRef<string | null>(initialPosts[0]?.id ?? null)
 
   // Use centralized data fetching hook with SWR
   const { posts, searchTags, isValidating, refresh } = useFeed({
@@ -54,15 +33,15 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
 
   // Update displayed posts when new data arrives
   useEffect(() => {
-    if (posts.length > 0 && displayedPosts.length > 0) {
+    if (posts.length > 0) {
+      // Check if top post changed before updating
       const newTopId = posts[0]?.id
-      const currentTopId = displayedPosts[0]?.id
-      if (newTopId !== currentTopId) {
+      if (currentTopIdRef.current && newTopId !== currentTopIdRef.current) {
         setHasNewPosts(true)
       }
-    }
-    // Update posts (wrootz values decay, etc.)
-    if (posts.length > 0) {
+      // Update the ref with new top ID
+      currentTopIdRef.current = newTopId ?? null
+      // Always update posts (wrootz values decay, etc.)
       setDisplayedPosts(posts)
     }
   }, [posts])

@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 interface SatsInputProps {
   value: string
   onChange: (value: string) => void
-  max?: number
+  max?: number  // TODO: Implement max validation
   placeholder?: string
   className?: string
   disabled?: boolean
@@ -20,6 +20,8 @@ export default function SatsInput({
   className = "",
   disabled = false
 }: SatsInputProps) {
+  // Note: max parameter reserved for future validation feature
+  void max
   const [displayValue, setDisplayValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
