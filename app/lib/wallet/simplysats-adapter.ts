@@ -3,6 +3,11 @@
  *
  * Connects to the Simply Sats desktop wallet via HTTP on port 3322.
  * Simply Sats implements the BRC-100 HTTP-JSON protocol (same as Metanet Desktop).
+ *
+ * Features:
+ * - Session token authentication (X-Simply-Sats-Token header)
+ * - Rate limit handling with exponential backoff
+ * - Native unlockBSV endpoint support
  */
 
 import { Hash } from '@bsv/sdk'
@@ -14,12 +19,21 @@ const CONNECTION_TIMEOUT = 10000 // 10 seconds
 // Simply Sats runs on port 3322 (Metanet Desktop uses 3321)
 const SIMPLY_SATS_URL = 'http://localhost:3322'
 
+// Rate limit retry configuration
+const MAX_RETRIES = 3
+const INITIAL_RETRY_DELAY = 1000 // 1 second
+const MAX_RETRY_DELAY = 10000 // 10 seconds
+
+// Session token header name
+const SESSION_TOKEN_HEADER = 'X-Simply-Sats-Token'
+
 export class SimplySatsAdapter implements WalletProvider {
   name = 'Simply Sats'
   icon = '/wallets/simplysats.png'
 
   private _isConnected = false
   private identityKey: string | null = null
+  private sessionToken: string | null = null
   private accountChangeCallbacks: ((address: string) => void)[] = []
   private disconnectCallbacks: (() => void)[] = []
 
@@ -27,25 +41,52 @@ export class SimplySatsAdapter implements WalletProvider {
     // Check for stored connection
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('simplysats_identity_key')
+      const storedToken = localStorage.getItem('simplysats_session_token')
       if (stored) {
         this.identityKey = stored
+        this.sessionToken = storedToken
         this._isConnected = true
       }
     }
   }
 
   /**
-   * Make an HTTP API call to Simply Sats
+   * Make an HTTP API call to Simply Sats with session token and rate limit handling
    */
-  private async api<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
+  private async api<T>(method: string, args: Record<string, unknown> = {}, retryCount = 0): Promise<T> {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    }
+
+    // Add session token if available (not required for getVersion)
+    if (this.sessionToken && method !== 'getVersion') {
+      headers[SESSION_TOKEN_HEADER] = this.sessionToken
+    }
+
     const response = await fetch(`${SIMPLY_SATS_URL}/${method}`, {
       method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(args)
     })
+
+    // Handle rate limiting with exponential backoff
+    if (response.status === 429) {
+      if (retryCount >= MAX_RETRIES) {
+        throw new Error('Rate limit exceeded. Please wait a moment and try again.')
+      }
+
+      const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, retryCount), MAX_RETRY_DELAY)
+      console.log(`Rate limited, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`)
+      await this.sleep(delay)
+      return this.api<T>(method, args, retryCount + 1)
+    }
+
+    // Handle authentication errors - may need to reconnect
+    if (response.status === 401) {
+      console.warn('Session token invalid or expired, may need to reconnect')
+      throw new Error('Authentication failed. Please reconnect your wallet.')
+    }
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
@@ -53,6 +94,13 @@ export class SimplySatsAdapter implements WalletProvider {
     }
 
     return await response.json()
+  }
+
+  /**
+   * Sleep helper for rate limit backoff
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 
   /**
@@ -80,6 +128,7 @@ export class SimplySatsAdapter implements WalletProvider {
 
   /**
    * Connect to Simply Sats wallet via HTTP
+   * Acquires a session token for authenticated requests
    */
   async connect(): Promise<string> {
     if (typeof window === 'undefined') {
@@ -89,7 +138,7 @@ export class SimplySatsAdapter implements WalletProvider {
     try {
       console.log('Connecting to Simply Sats via HTTP...')
 
-      // Test connection with getVersion
+      // Test connection with getVersion (no token required)
       const versionResult = await this.withTimeout(
         this.api<{ version: string }>('getVersion'),
         CONNECTION_TIMEOUT,
@@ -97,12 +146,20 @@ export class SimplySatsAdapter implements WalletProvider {
       )
       console.log('Simply Sats version:', versionResult.version)
 
-      // Wait for authentication
-      await this.withTimeout(
-        this.api<{ authenticated: boolean }>('waitForAuthentication'),
+      // Request a session token for authenticated API calls
+      // Simply Sats generates a token when waiting for authentication
+      const authResult = await this.withTimeout(
+        this.api<{ authenticated: boolean; token?: string }>('waitForAuthentication'),
         CONNECTION_TIMEOUT,
         'Authentication check timed out.'
       )
+
+      // Store session token if provided
+      if (authResult.token) {
+        this.sessionToken = authResult.token
+        localStorage.setItem('simplysats_session_token', authResult.token)
+        console.log('Session token acquired')
+      }
 
       // Get the user's identity public key
       const { publicKey } = await this.withTimeout(
@@ -140,8 +197,10 @@ export class SimplySatsAdapter implements WalletProvider {
   async disconnect(): Promise<void> {
     this._isConnected = false
     this.identityKey = null
+    this.sessionToken = null
     if (typeof window !== 'undefined') {
       localStorage.removeItem('simplysats_identity_key')
+      localStorage.removeItem('simplysats_session_token')
     }
     this.disconnectCallbacks.forEach(cb => cb())
   }
@@ -298,7 +357,7 @@ export class SimplySatsAdapter implements WalletProvider {
 
   async unlockBSV(outpoint: string): Promise<UnlockResult> {
     try {
-      const { height: currentHeight } = await this.api<{ height: number }>('getHeight')
+      // First verify the lock exists and is spendable
       const locks = await this.listLocks()
       const lock = locks.find(l => l.outpoint === outpoint)
 
@@ -310,42 +369,38 @@ export class SimplySatsAdapter implements WalletProvider {
         throw new Error(`Lock is not yet spendable. ${lock.blocksRemaining} blocks remaining`)
       }
 
-      const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
-      const pubKeyHashHex = this.hash160(publicKey)
-      const p2pkhScript = '76a914' + pubKeyHashHex + '88ac'
+      console.log(`Unlocking ${lock.satoshis} sats from outpoint ${outpoint}`)
 
+      // Use the native unlockBSV endpoint which handles preimage construction internally
+      // This is cleaner than manually building the createAction request
       const result = await this.withTimeout(
-        this.api<{ txid: string }>('createAction', {
-          description: `Wrootz: Unlock ${lock.satoshis} sats`,
-          inputs: [{
-            outpoint,
-            inputDescription: 'Unlock time-locked BSV',
-            unlockingScriptLength: 108,
-            sequenceNumber: 0xfffffffe
-          }],
-          outputs: [{
-            lockingScript: p2pkhScript,
-            satoshis: lock.satoshis - 1,
-            outputDescription: 'Unlocked funds',
-            basket: 'default'
-          }],
-          lockTime: currentHeight,
-          labels: ['unlock', 'wrootz']
+        this.api<{ txid: string; amount?: number }>('unlockBSV', {
+          outpoint,
+          // Optional metadata for tracking
+          metadata: {
+            app: 'wrootz'
+          }
         }),
         60000,
-        'Unlock transaction timed out.'
+        'Unlock transaction timed out. Please approve the transaction in Simply Sats.'
       )
 
       if (!result.txid) {
-        throw new Error('Unlock transaction failed')
+        throw new Error('Unlock transaction failed - no txid returned')
       }
+
+      console.log('Unlock successful:', result.txid)
 
       return {
         txid: result.txid,
-        amount: lock.satoshis
+        amount: result.amount || lock.satoshis
       }
     } catch (error) {
       if (error instanceof Error) {
+        // Enhance error messages for common cases
+        if (error.message.includes('Failed to fetch')) {
+          throw new Error('Lost connection to Simply Sats. Please try again or reconnect your wallet.')
+        }
         throw error
       }
       throw new Error('Unlock failed: Unknown error')
