@@ -4,7 +4,13 @@ import { useState, useMemo } from 'react'
 import { formatWrootz, formatSats, bsvToSats } from '@/app/lib/constants'
 import CollapsibleSection from '@/app/components/CollapsibleSection'
 import Link from 'next/link'
-import type { Lock, WrootzDataPoint } from '@/app/lib/types'
+import type { Lock } from '@/app/lib/types'
+import {
+  calculateWrootzHistory,
+  generateAreaPath,
+  generateLinePath,
+  getSortedTags
+} from '@/app/lib/utils/wrootz-calculations'
 
 interface WrootzHistoryProps {
   activeLocks: Lock[]
@@ -21,97 +27,32 @@ export default function WrootzHistory({ activeLocks, expiredLocks, currentBlock,
   const totalExpiredWrootz = expiredLocks.reduce((sum, lock) => sum + lock.initialTu, 0)
   const totalExpiredSats = expiredLocks.reduce((sum, lock) => sum + lock.amount, 0)
 
-  // Calculate historical wrootz data for graph
-  const graphData = useMemo(() => {
-    if (allLocks.length === 0) return []
-
-    // Find the earliest start block and create timeline
-    const earliestBlock = Math.min(...allLocks.map(l => l.startBlock))
-    const dataPoints: WrootzDataPoint[] = []
-
-    // Sample at reasonable intervals (every 6 blocks = 1 hour, or fewer points for long histories)
-    const blockRange = currentBlock - earliestBlock
-    const sampleInterval = Math.max(1, Math.floor(blockRange / 50)) // Max 50 data points
-
-    for (let block = earliestBlock; block <= currentBlock; block += sampleInterval) {
-      let totalWrootz = 0
-
-      for (const lock of allLocks) {
-        if (block >= lock.startBlock) {
-          const blocksElapsed = block - lock.startBlock
-          const blocksRemaining = Math.max(0, lock.durationBlocks - blocksElapsed)
-
-          if (blocksRemaining > 0) {
-            // Lock is still active at this block
-            // wrootz decays linearly: currentTu = initialTu * (remainingBlocks / durationBlocks)
-            const wrootzAtBlock = lock.initialTu * (blocksRemaining / lock.durationBlocks)
-            totalWrootz += wrootzAtBlock
-          }
-        }
-      }
-
-      dataPoints.push({ block, wrootz: totalWrootz })
-    }
-
-    // Always include current block
-    if (dataPoints.length === 0 || dataPoints[dataPoints.length - 1].block !== currentBlock) {
-      const currentWrootz = activeLocks.reduce((sum, l) => sum + l.currentTu, 0)
-      dataPoints.push({ block: currentBlock, wrootz: currentWrootz })
-    }
-
-    return dataPoints
-  }, [allLocks, activeLocks, currentBlock])
+  // Calculate historical wrootz data for graph using shared utility
+  const graphData = useMemo(
+    () => calculateWrootzHistory(allLocks, activeLocks, currentBlock, 50),
+    [allLocks, activeLocks, currentBlock]
+  )
 
   // Calculate graph dimensions
   const maxWrootz = Math.max(...graphData.map(d => d.wrootz), 1)
   const minBlock = graphData.length > 0 ? graphData[0].block : currentBlock
-  const blockRange = currentBlock - minBlock || 1
 
-  // SVG path for the area chart
-  const pathData = useMemo(() => {
-    if (graphData.length < 2) return ''
+  // SVG paths using shared utilities
+  const pathData = useMemo(
+    () => generateAreaPath(graphData, minBlock, currentBlock, maxWrootz),
+    [graphData, minBlock, currentBlock, maxWrootz]
+  )
 
-    const width = 100
-    const height = 100
+  const linePath = useMemo(
+    () => generateLinePath(graphData, minBlock, currentBlock, maxWrootz),
+    [graphData, minBlock, currentBlock, maxWrootz]
+  )
 
-    const points = graphData.map((d) => {
-      const x = ((d.block - minBlock) / blockRange) * width
-      const y = height - (d.wrootz / maxWrootz) * height
-      return `${x},${y}`
-    })
-
-    // Create area path (line + close to bottom)
-    const linePath = points.join(' L ')
-    const lastX = ((graphData[graphData.length - 1].block - minBlock) / blockRange) * width
-    const firstX = 0
-
-    return `M ${firstX},${height} L ${linePath} L ${lastX},${height} Z`
-  }, [graphData, minBlock, blockRange, maxWrootz])
-
-  // Line path (just the top edge)
-  const linePath = useMemo(() => {
-    if (graphData.length < 2) return ''
-
-    const width = 100
-    const height = 100
-
-    const points = graphData.map((d) => {
-      const x = ((d.block - minBlock) / blockRange) * width
-      const y = height - (d.wrootz / maxWrootz) * height
-      return `${x},${y}`
-    })
-
-    return `M ${points.join(' L ')}`
-  }, [graphData, minBlock, blockRange, maxWrootz])
-
-  // Calculate expired tags for search
-  const expiredTagWrootz: Record<string, number> = {}
-  for (const lock of expiredLocks) {
-    if (lock.tag) {
-      expiredTagWrootz[lock.tag] = (expiredTagWrootz[lock.tag] || 0) + lock.initialTu
-    }
-  }
-  const sortedExpiredTags = Object.entries(expiredTagWrootz).sort((a, b) => b[1] - a[1])
+  // Calculate expired tags using shared utility
+  const sortedExpiredTags = useMemo(
+    () => getSortedTags(expiredLocks, true),
+    [expiredLocks]
+  )
 
   if (allLocks.length === 0) {
     if (embedded) {
