@@ -26,8 +26,15 @@ export const maxDuration = 60 // Allow up to 60 seconds for processing
  * Optionally protected by CRON_SECRET.
  */
 export async function GET(request: NextRequest) {
-  // Verify cron secret if configured
+  // Verify cron secret - required in production
   const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret && process.env.NODE_ENV === 'production') {
+    console.error('CRON_SECRET is required in production')
+    return NextResponse.json(
+      { error: 'Server misconfiguration' },
+      { status: 500 }
+    )
+  }
   if (cronSecret) {
     const authHeader = request.headers.get('authorization')
     const providedSecret = authHeader?.replace('Bearer ', '')

@@ -4,7 +4,7 @@ import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { revalidatePath } from 'next/cache'
 import { checkStrictRateLimit } from '@/app/lib/server-action-rate-limit'
-import { verifyLock } from '@/app/lib/blockchain-verify'
+import { verifyPayment } from '@/app/lib/blockchain-verify'
 
 /**
  * List a post for sale.
@@ -194,13 +194,22 @@ export async function buyPost(formData: FormData) {
     return { error: 'Cannot buy your own post' }
   }
 
-  // Verify the payment transaction exists on-chain
-  // Note: Full verification would check the payment went to the correct address
-  // For now, we just verify the transaction exists
+  // Verify payment was sent to seller's wallet for the correct amount
+  if (!post.owner.walletAddress) {
+    return { error: 'Seller has no wallet address configured. Cannot verify payment.' }
+  }
+
+  const expectedSatoshis = Math.round(post.salePrice * 100_000_000)
   try {
-    const verification = await verifyLock(txid, Math.round(post.salePrice * 100_000_000), 0, null)
+    const verification = await verifyPayment(txid, expectedSatoshis, post.owner.walletAddress)
     if (!verification.txExists) {
       return { error: 'Payment transaction not found on blockchain. Please wait for confirmation.' }
+    }
+    if (!verification.paymentFound) {
+      return { error: 'No payment to the seller\'s address was found in this transaction.' }
+    }
+    if (!verification.amountCorrect) {
+      return { error: `Payment amount insufficient. Expected ${expectedSatoshis} sats, found ${verification.onChainAmount ?? 0} sats.` }
     }
   } catch (error) {
     console.error('Payment verification error:', error)

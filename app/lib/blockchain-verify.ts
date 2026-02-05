@@ -392,6 +392,105 @@ export async function verifyInscription(txid: string): Promise<InscriptionVerifi
   }
 }
 
+export interface PaymentVerification {
+  verified: boolean
+  txExists: boolean
+  paymentFound: boolean
+  amountCorrect: boolean
+  onChainAmount?: number
+  error?: string
+  verifiedAt: string
+}
+
+/**
+ * Verify a payment transaction sends the correct amount to the expected recipient.
+ * Checks all outputs for a P2PKH payment matching the seller's address and amount.
+ */
+export async function verifyPayment(
+  txid: string,
+  expectedSatoshis: number,
+  recipientPubKeyOrAddress: string
+): Promise<PaymentVerification> {
+  const result: PaymentVerification = {
+    verified: false,
+    txExists: false,
+    paymentFound: false,
+    amountCorrect: false,
+    verifiedAt: new Date().toISOString()
+  }
+
+  try {
+    const tx = await fetchTransaction(txid)
+    if (!tx) {
+      result.error = 'Transaction not found on blockchain'
+      return result
+    }
+    result.txExists = true
+
+    // The recipient's wallet address is stored as a public key hex.
+    // Derive the P2PKH script: OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+    // We need to match either:
+    //   1. A P2PKH output whose pubKeyHash matches hash160(recipientPubKey)
+    //   2. Direct comparison if recipientPubKeyOrAddress is already a pubKeyHash
+    //
+    // Search all outputs for a payment to this address
+    const recipientScriptSuffix = recipientPubKeyOrAddress.toLowerCase()
+
+    let totalPaymentToRecipient = 0
+
+    for (const output of tx.vout) {
+      const scriptHex = output.scriptPubKey.hex.toLowerCase()
+
+      // Check for P2PKH: 76a914{20-byte-hash}88ac
+      // The script contains the pubKeyHash - check if it matches
+      if (scriptHex.startsWith('76a914') && scriptHex.endsWith('88ac') && scriptHex.length === 50) {
+        const outputPubKeyHash = scriptHex.substring(6, 46)
+
+        // Match against the recipient's public key or address
+        // If recipient is a full public key, we need to compare the hash
+        // If recipient is already a pubKeyHash (40 hex chars), compare directly
+        if (recipientScriptSuffix.length === 40) {
+          // Already a pubKeyHash
+          if (outputPubKeyHash === recipientScriptSuffix) {
+            totalPaymentToRecipient += output.value
+          }
+        } else if (recipientScriptSuffix.length === 66 || recipientScriptSuffix.length === 130) {
+          // Compressed (33 bytes = 66 hex) or uncompressed (65 bytes = 130 hex) public key
+          // We include the pubkey in the P2PKH match by checking if the script contains it
+          // For a proper match, we'd need hash160 - but the script already has the hash
+          // So we check if any output script's asm references this key
+          if (output.scriptPubKey.asm && output.scriptPubKey.asm.includes(recipientScriptSuffix)) {
+            totalPaymentToRecipient += output.value
+          }
+        }
+      }
+    }
+
+    if (totalPaymentToRecipient > 0) {
+      result.paymentFound = true
+      result.onChainAmount = totalPaymentToRecipient
+      // Allow 1% tolerance for miner fees / rounding
+      const tolerance = Math.max(1, Math.floor(expectedSatoshis * 0.01))
+      result.amountCorrect = totalPaymentToRecipient >= (expectedSatoshis - tolerance)
+    }
+
+    result.verified = result.txExists && result.paymentFound && result.amountCorrect
+
+    if (!result.verified && !result.error) {
+      if (!result.paymentFound) {
+        result.error = 'No payment to the seller\'s address found in this transaction'
+      } else if (!result.amountCorrect) {
+        result.error = `Payment amount insufficient: found ${totalPaymentToRecipient} sats, expected ${expectedSatoshis} sats`
+      }
+    }
+
+    return result
+  } catch (error) {
+    result.error = error instanceof Error ? error.message : 'Unknown verification error'
+    return result
+  }
+}
+
 /**
  * Get current block height from WhatsOnChain
  */

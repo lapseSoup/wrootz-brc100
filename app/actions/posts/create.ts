@@ -7,6 +7,8 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { notifyFollowersOfNewPost, notifyReplyCreated } from '../notifications'
 import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
+import { verifyInscription } from '@/app/lib/blockchain-verify'
+import crypto from 'crypto'
 
 /**
  * Create a new post with optional inscription data and reply link.
@@ -47,6 +49,26 @@ export async function createPost(formData: FormData) {
   // Require inscription for mainnet posts
   if (!inscriptionTxid || !inscriptionId) {
     return { error: 'Posts must be inscribed on-chain. Please connect your wallet.' }
+  }
+
+  // S2: Verify inscription exists on-chain and is a valid ordinal
+  const inscriptionCheck = await verifyInscription(inscriptionTxid)
+  if (!inscriptionCheck.txExists) {
+    return { error: 'Inscription transaction not found on blockchain. Please wait a moment and try again.' }
+  }
+  if (!inscriptionCheck.isOrdinal) {
+    return { error: 'Transaction is not a valid ordinal inscription.' }
+  }
+
+  // S3: Verify contentHash matches actual post content if provided
+  if (contentHash) {
+    const computedHash = crypto
+      .createHash('sha256')
+      .update(`${title || ''}${body}`)
+      .digest('hex')
+    if (computedHash !== contentHash) {
+      return { error: 'Content hash does not match the post content.' }
+    }
   }
 
   // Use inscriptionTxid as idempotency key - prevents duplicate posts for same inscription

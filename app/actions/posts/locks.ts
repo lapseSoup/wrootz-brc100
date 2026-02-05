@@ -6,27 +6,9 @@ import { MAX_LOCK_DURATION_BLOCKS, MIN_LOCK_AMOUNT_SATS, MIN_LOCK_PERCENTAGE_FOR
 import { revalidatePath } from 'next/cache'
 import { notifyLockOnPost, notifyTagFollowers } from '../notifications'
 import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
-import { fetchTransaction } from '@/app/lib/blockchain-verify'
+import { verifyLock, getCurrentBlockHeight } from '@/app/lib/blockchain-verify'
+import { checkStrictRateLimit } from '@/app/lib/server-action-rate-limit'
 
-/**
- * Verify a transaction exists on-chain with exponential backoff.
- * Returns true if the transaction is found, false otherwise.
- */
-async function verifyTransactionExists(txid: string, maxAttempts = 3): Promise<boolean> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const tx = await fetchTransaction(txid)
-      if (tx) return true
-    } catch {
-      // Continue to next attempt
-    }
-    // Exponential backoff: 2s, 4s, 8s
-    if (attempt < maxAttempts - 1) {
-      await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)))
-    }
-  }
-  return false
-}
 
 /**
  * DEPRECATED: This function uses simulated balance.
@@ -55,7 +37,13 @@ export async function recordLock(params: {
     return { error: 'You must be logged in to lock BSV' }
   }
 
-  const { postId, amount, satoshis, durationBlocks, tag, txid, lockAddress } = params
+  // Rate limit lock operations to prevent spam
+  const rateLimit = await checkStrictRateLimit('recordLock')
+  if (!rateLimit.success) {
+    return { error: `Too many lock attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
+  }
+
+  const { postId, satoshis, durationBlocks, tag, txid, lockAddress } = params
 
   if (!postId || !txid) {
     return { error: 'Post ID and transaction ID are required' }
@@ -74,11 +62,37 @@ export async function recordLock(params: {
     return { error: 'Invalid lock duration' }
   }
 
-  // Verify transaction exists on-chain before recording
-  // This prevents recording locks for non-existent or failed transactions
-  const txVerified = await verifyTransactionExists(txid)
-  if (!txVerified) {
+  // Get current block height for unlock block calculation
+  const blockchainState = await prisma.blockchainState.findUnique({
+    where: { id: 'singleton' }
+  })
+  let currentBlock = blockchainState?.currentBlock ?? null
+  if (currentBlock === null) {
+    // Fallback: fetch from WhatsOnChain if DB state not initialized
+    currentBlock = await getCurrentBlockHeight()
+    if (currentBlock === null) {
+      return { error: 'Unable to determine current block height. Please try again.' }
+    }
+  }
+  const expectedUnlockBlock = currentBlock + durationBlocks
+
+  // Full on-chain verification: verify tx exists AND lock amount, script, unlock block match
+  const verification = await verifyLock(txid, satoshis, expectedUnlockBlock)
+  if (!verification.txExists) {
     return { error: 'Transaction not found on blockchain. Please wait a moment and try again.' }
+  }
+  if (!verification.amountMatches) {
+    return { error: `Lock amount mismatch: on-chain amount is ${verification.onChainAmount} sats, but ${satoshis} sats was claimed.` }
+  }
+  if (!verification.scriptIsValidLock) {
+    return { error: 'Transaction does not contain a valid timelock script.' }
+  }
+  // Allow some tolerance on unlock block (±5 blocks for propagation delay)
+  if (verification.onChainUnlockBlock !== undefined) {
+    const blockDiff = Math.abs(verification.onChainUnlockBlock - expectedUnlockBlock)
+    if (blockDiff > 5) {
+      return { error: `Unlock block mismatch: on-chain unlock at block ${verification.onChainUnlockBlock}, expected ~${expectedUnlockBlock}.` }
+    }
   }
 
   // Use txid as idempotency key - prevents duplicate lock records for same transaction
@@ -114,21 +128,19 @@ export async function recordLock(params: {
       }
     }
 
-    // Get current block from blockchain
-    const blockchainState = await prisma.blockchainState.findUnique({
-      where: { id: 'singleton' }
-    })
-    const currentBlock = blockchainState?.currentBlock || 0
+    // Use verified on-chain amount for calculations (trust on-chain, not client)
+    const verifiedSatoshis = verification.onChainAmount ?? satoshis
+    const verifiedAmount = verifiedSatoshis / SATS_PER_BSV
 
-    // Calculate initial wrootz
-    const initialTu = calculateWrootz(amount, durationBlocks)
+    // Calculate initial wrootz using verified values
+    const initialTu = calculateWrootz(verifiedAmount, durationBlocks)
 
-    // Create lock record (no balance deduction since it's on-chain)
+    // Create lock record using verified on-chain data
     await prisma.$transaction([
       prisma.lock.create({
         data: {
-          amount,
-          satoshis,
+          amount: verifiedAmount,
+          satoshis: verifiedSatoshis,
           durationBlocks,
           startBlock: currentBlock,
           remainingBlocks: durationBlocks,
@@ -137,6 +149,10 @@ export async function recordLock(params: {
           tag,
           txid,
           lockAddress,
+          verified: true,
+          verifiedAt: new Date(),
+          onChainAmount: verification.onChainAmount ?? null,
+          onChainUnlock: verification.onChainUnlockBlock ?? null,
           userId: session.userId,
           postId
         }
@@ -150,11 +166,11 @@ export async function recordLock(params: {
       prisma.transaction.create({
         data: {
           action: 'Lock',
-          amount,
-          satoshis,
+          amount: verifiedAmount,
+          satoshis: verifiedSatoshis,
           txid,
           confirmed: false, // Will be updated when confirmed on-chain
-          description: `Locked ${satoshis.toLocaleString()} sats for ${durationBlocks} blocks${tag ? ` with tag: ${tag}` : ''}`,
+          description: `Locked ${verifiedSatoshis.toLocaleString()} sats for ${durationBlocks} blocks${tag ? ` with tag: ${tag}` : ''}`,
           userId: session.userId,
           postId
         }
