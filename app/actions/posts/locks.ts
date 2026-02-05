@@ -6,6 +6,27 @@ import { MAX_LOCK_DURATION_BLOCKS, MIN_LOCK_AMOUNT_SATS, MIN_LOCK_PERCENTAGE_FOR
 import { revalidatePath } from 'next/cache'
 import { notifyLockOnPost, notifyTagFollowers } from '../notifications'
 import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
+import { fetchTransaction } from '@/app/lib/blockchain-verify'
+
+/**
+ * Verify a transaction exists on-chain with exponential backoff.
+ * Returns true if the transaction is found, false otherwise.
+ */
+async function verifyTransactionExists(txid: string, maxAttempts = 3): Promise<boolean> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const tx = await fetchTransaction(txid)
+      if (tx) return true
+    } catch {
+      // Continue to next attempt
+    }
+    // Exponential backoff: 2s, 4s, 8s
+    if (attempt < maxAttempts - 1) {
+      await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)))
+    }
+  }
+  return false
+}
 
 /**
  * DEPRECATED: This function uses simulated balance.
@@ -51,6 +72,13 @@ export async function recordLock(params: {
 
   if (durationBlocks < 1 || durationBlocks > MAX_LOCK_DURATION_BLOCKS) {
     return { error: 'Invalid lock duration' }
+  }
+
+  // Verify transaction exists on-chain before recording
+  // This prevents recording locks for non-existent or failed transactions
+  const txVerified = await verifyTransactionExists(txid)
+  if (!txVerified) {
+    return { error: 'Transaction not found on blockchain. Please wait a moment and try again.' }
   }
 
   // Use txid as idempotency key - prevents duplicate lock records for same transaction

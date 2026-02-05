@@ -7,6 +7,7 @@ import { LOCK_DURATION_PRESETS, MAX_LOCK_DURATION_BLOCKS, formatSats, blocksToTi
 import TagInput from './TagInput'
 import SatsInput from './SatsInput'
 import { useWallet } from './WalletProvider'
+import { getErrorDetails } from '@/app/lib/wallet/errors'
 
 interface LockFormProps {
   postId: string
@@ -15,7 +16,7 @@ interface LockFormProps {
 
 export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
   const router = useRouter()
-  const { isConnected, balance, currentWallet, connect } = useWallet()
+  const { isConnected, balance, currentWallet, connect, refreshBalance } = useWallet()
 
   const userBalanceSats = balance?.satoshis ?? 0
   const [amountSats, setAmountSats] = useState('')
@@ -24,12 +25,14 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
   const [useCustom, setUseCustom] = useState(false)
   const [tag, setTag] = useState('')
   const [error, setError] = useState('')
+  const [errorAction, setErrorAction] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
   const [txStatus, setTxStatus] = useState<'idle' | 'signing' | 'broadcasting' | 'confirming'>('idle')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setErrorAction(undefined)
 
     // Check wallet connection
     if (!isConnected || !currentWallet) {
@@ -85,6 +88,8 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
         setError(result.error)
       } else {
         setTxStatus('confirming')
+        // Immediately refresh balance after successful lock
+        refreshBalance()
         // Success! Refresh the page to show updated data
         router.refresh()
         setAmountSats('')
@@ -92,7 +97,9 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
       }
     } catch (err) {
       console.error('Lock transaction failed:', err)
-      setError(err instanceof Error ? err.message : 'Transaction failed. Please try again.')
+      const errorDetails = getErrorDetails(err)
+      setError(errorDetails.message)
+      setErrorAction(errorDetails.action)
     } finally {
       setLoading(false)
       setTxStatus('idle')
@@ -135,7 +142,10 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
     <form onSubmit={handleSubmit} className="space-y-3 overflow-visible">
       {error && (
         <div className="p-2 bg-[var(--danger)] text-white rounded text-xs">
-          {error}
+          <div>{error}</div>
+          {errorAction && (
+            <div className="mt-1 opacity-90 text-[10px]">{errorAction}</div>
+          )}
         </div>
       )}
 

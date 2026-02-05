@@ -58,3 +58,25 @@
 - Keep `.env` in `.gitignore`
 - Create `.env.example` with all required variables documented
 - Never commit secrets, even "development" ones
+
+## Wallet Integration Patterns
+
+### Transaction Verification
+- **Verify on-chain before recording** - Always check tx exists on blockchain before writing to DB
+- **Use exponential backoff** - Retry 3x with 2s, 4s, 8s delays for API failures
+- **Batch API calls** - WhatsOnChain rate limit is 3 req/sec, process in batches with delays
+
+### Error Handling
+- **Categorize errors** - Connection, Auth, InsufficientFunds, Rejected, Network, Timeout
+- **Include actionable suggestions** - Each error type should have a user-facing action suggestion
+- **Parse error messages** - Look for keywords like "401", "insufficient", "rejected" to categorize
+
+### Auto-Reconnect
+- **Handle 401 transparently** - Attempt reconnect once before throwing auth error
+- **Prevent race conditions** - Use single reconnect promise to prevent multiple concurrent reconnects
+- **Clear reconnect state** - Always clear reconnect promise in finally block
+
+### Balance Updates
+- **Refresh immediately after operations** - Don't wait for periodic refresh after lock/unlock
+- **Expose refresh function from context** - Let components trigger refresh as needed
+- **Keep periodic refresh as backup** - 30-second interval for catching external changes

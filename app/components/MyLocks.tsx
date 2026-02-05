@@ -4,13 +4,15 @@ import { useState, useEffect, useCallback } from 'react'
 import { useWallet } from './WalletProvider'
 import { formatSats, blocksToTimeString } from '@/app/lib/constants'
 import type { LockedOutput } from '@/app/lib/wallet/types'
+import { getErrorDetails } from '@/app/lib/wallet/errors'
 
 export default function MyLocks() {
-  const { isConnected, currentWallet, connect } = useWallet()
+  const { isConnected, currentWallet, connect, refreshBalance } = useWallet()
   const [locks, setLocks] = useState<LockedOutput[]>([])
   const [loading, setLoading] = useState(false)
   const [unlocking, setUnlocking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [errorAction, setErrorAction] = useState<string | undefined>()
   const [success, setSuccess] = useState<string | null>(null)
   const [currentBlock, setCurrentBlock] = useState<number>(0)
 
@@ -53,16 +55,21 @@ export default function MyLocks() {
 
     setUnlocking(outpoint)
     setError(null)
+    setErrorAction(undefined)
     setSuccess(null)
 
     try {
       const result = await currentWallet.unlockBSV(outpoint)
       setSuccess(`Successfully unlocked! Transaction: ${result.txid.slice(0, 8)}...${result.txid.slice(-8)}`)
+      // Immediately refresh balance after successful unlock
+      refreshBalance()
       // Refresh the locks list
       await loadLocks()
     } catch (err) {
       console.error('Unlock failed:', err)
-      setError(err instanceof Error ? err.message : 'Unlock failed')
+      const errorDetails = getErrorDetails(err)
+      setError(errorDetails.message)
+      setErrorAction(errorDetails.action)
     } finally {
       setUnlocking(null)
     }
@@ -101,7 +108,10 @@ export default function MyLocks() {
 
       {error && (
         <div className="p-3 mb-4 bg-[var(--danger)]/10 text-[var(--danger)] rounded-lg text-sm">
-          {error}
+          <div>{error}</div>
+          {errorAction && (
+            <div className="mt-1 opacity-80 text-xs">{errorAction}</div>
+          )}
         </div>
       )}
 

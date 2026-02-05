@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/update-locks",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/confirm-transactions",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

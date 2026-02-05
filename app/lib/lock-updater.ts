@@ -8,6 +8,7 @@
 
 import prisma from '@/app/lib/db'
 import { getCurrentBlockHeight } from '@/app/lib/blockchain'
+import { fetchTransaction } from '@/app/lib/blockchain-verify'
 
 // Minimum time between updates (in milliseconds)
 const UPDATE_INTERVAL_MS = 60 * 1000 // 1 minute
@@ -193,4 +194,137 @@ export async function forceUpdateLockStatuses(): Promise<{
   // Reset last update time to force update
   lastUpdateTime = 0
   return updateLockStatusesIfNeeded()
+}
+
+/**
+ * Confirm unconfirmed transactions by checking on-chain status
+ * Returns the number of transactions confirmed
+ */
+export async function confirmTransactions(): Promise<{
+  checked: number
+  confirmed: number
+  errors: number
+}> {
+  // WhatsOnChain rate limit: 3 requests per second
+  // Process in batches to stay well under limit
+  const BATCH_SIZE = 5
+  const DELAY_BETWEEN_BATCH_MS = 2000 // 2 seconds between batches
+
+  let checked = 0
+  let confirmed = 0
+  let errors = 0
+
+  // Find unconfirmed transactions (both locks and transactions table)
+  const unconfirmedLocks = await prisma.lock.findMany({
+    where: {
+      confirmed: false,
+      txid: { not: null }
+    },
+    select: {
+      id: true,
+      txid: true
+    },
+    take: 50 // Process max 50 per run to respect rate limits
+  })
+
+  const unconfirmedTxs = await prisma.transaction.findMany({
+    where: {
+      confirmed: false,
+      txid: { not: null }
+    },
+    select: {
+      id: true,
+      txid: true
+    },
+    take: 50
+  })
+
+  // Combine unique txids
+  const txidMap = new Map<string, { lockIds: string[]; txIds: string[] }>()
+
+  for (const lock of unconfirmedLocks) {
+    if (lock.txid) {
+      const entry = txidMap.get(lock.txid) || { lockIds: [], txIds: [] }
+      entry.lockIds.push(lock.id)
+      txidMap.set(lock.txid, entry)
+    }
+  }
+
+  for (const tx of unconfirmedTxs) {
+    if (tx.txid) {
+      const entry = txidMap.get(tx.txid) || { lockIds: [], txIds: [] }
+      entry.txIds.push(tx.id)
+      txidMap.set(tx.txid, entry)
+    }
+  }
+
+  const txids = Array.from(txidMap.keys())
+
+  // Process in batches
+  for (let i = 0; i < txids.length; i += BATCH_SIZE) {
+    const batch = txids.slice(i, i + BATCH_SIZE)
+
+    // Check each transaction in the batch
+    const batchResults = await Promise.allSettled(
+      batch.map(async (txid) => {
+        const txData = await fetchTransaction(txid)
+        return { txid, txData }
+      })
+    )
+
+    // Process results
+    const updateOperations: Array<ReturnType<typeof prisma.lock.update> | ReturnType<typeof prisma.transaction.update>> = []
+
+    for (const result of batchResults) {
+      checked++
+      if (result.status === 'rejected') {
+        errors++
+        continue
+      }
+
+      const { txid, txData } = result.value
+      if (!txData) {
+        errors++
+        continue
+      }
+
+      // Check if confirmed (has at least 1 confirmation)
+      if (txData.confirmations > 0) {
+        const entry = txidMap.get(txid)
+        if (entry) {
+          // Update all locks with this txid
+          for (const lockId of entry.lockIds) {
+            updateOperations.push(
+              prisma.lock.update({
+                where: { id: lockId },
+                data: { confirmed: true }
+              })
+            )
+          }
+          // Update all transactions with this txid
+          for (const txId of entry.txIds) {
+            updateOperations.push(
+              prisma.transaction.update({
+                where: { id: txId },
+                data: { confirmed: true }
+              })
+            )
+          }
+          confirmed++
+        }
+      }
+    }
+
+    // Execute batch updates
+    if (updateOperations.length > 0) {
+      await prisma.$transaction(updateOperations)
+    }
+
+    // Wait before next batch (if not the last batch)
+    if (i + BATCH_SIZE < txids.length) {
+      await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCH_MS))
+    }
+  }
+
+  return { checked, confirmed, errors }
 }

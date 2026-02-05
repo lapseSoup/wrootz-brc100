@@ -12,6 +12,14 @@
 - [x] Cursor pagination - for feed endpoint
 - [x] buyPost re-enabled - with transaction verification
 
+## Simply Sats Wallet Improvements (Phase 1 & 2)
+
+- [x] Lock verification before recording - verifies tx exists on-chain before DB write
+- [x] Transaction confirmation tracking - cron endpoint to update confirmed status
+- [x] Categorized wallet errors - better UX with actionable error messages
+- [x] Auto-reconnect on stale session - transparent reconnect on 401 errors
+- [x] Real-time balance updates - immediate balance refresh after lock/unlock
+
 ## Production Deployment Checklist
 
 ### Required Environment Variables
@@ -35,26 +43,27 @@ Get credentials at https://upstash.com:
 
 ### Cron Job Setup
 
-Set up a cron job to update lock statuses every minute:
+Two cron jobs are configured in `vercel.json`:
+1. **Lock status updates** - every minute
+2. **Transaction confirmations** - every 5 minutes
 
-**Option 1: Vercel Cron**
-Add to `vercel.json`:
+**Option 1: Vercel Cron (already configured)**
 ```json
 {
-  "crons": [{
-    "path": "/api/cron/update-locks",
-    "schedule": "* * * * *"
-  }]
+  "crons": [
+    { "path": "/api/cron/update-locks", "schedule": "* * * * *" },
+    { "path": "/api/cron/confirm-transactions", "schedule": "*/5 * * * *" }
+  ]
 }
 ```
 
 **Option 2: External Cron (cron-job.org, etc.)**
-- URL: `https://your-domain.com/api/cron/update-locks`
-- Frequency: Every 1 minute
+- Lock updates: `https://your-domain.com/api/cron/update-locks` (every 1 min)
+- TX confirmations: `https://your-domain.com/api/cron/confirm-transactions` (every 5 min)
 - Headers: `Authorization: Bearer YOUR_CRON_SECRET`
 
 - [ ] Set `CRON_SECRET` environment variable
-- [ ] Configure cron job
+- [ ] Configure cron jobs
 
 ### Database Migration (if using PostgreSQL)
 

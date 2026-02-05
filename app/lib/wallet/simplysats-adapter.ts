@@ -12,6 +12,14 @@
 
 import { Hash } from '@bsv/sdk'
 import type { WalletProvider, WalletBalance, SendResult, LockResult, InscriptionData, InscriptionResult, LockedOutput, UnlockResult } from './types'
+import {
+  WalletConnectionError,
+  WalletAuthError,
+  InsufficientFundsError,
+  TransactionRejectedError,
+  TimeoutError,
+  parseWalletError
+} from './errors'
 
 // Connection timeout in milliseconds
 const CONNECTION_TIMEOUT = 10000 // 10 seconds
@@ -36,6 +44,7 @@ export class SimplySatsAdapter implements WalletProvider {
   private sessionToken: string | null = null
   private accountChangeCallbacks: ((address: string) => void)[] = []
   private disconnectCallbacks: (() => void)[] = []
+  private reconnectPromise: Promise<string> | null = null
 
   constructor() {
     // Check for stored identity key (public, not sensitive)
@@ -106,11 +115,17 @@ export class SimplySatsAdapter implements WalletProvider {
       headers[SESSION_TOKEN_HEADER] = this.sessionToken
     }
 
-    const response = await fetch(`${SIMPLY_SATS_URL}/${method}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(args)
-    })
+    let response: Response
+    try {
+      response = await fetch(`${SIMPLY_SATS_URL}/${method}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(args)
+      })
+    } catch {
+      // Network-level failures (connection refused, etc.)
+      throw new WalletConnectionError()
+    }
 
     // Handle rate limiting with exponential backoff
     if (response.status === 429) {
@@ -124,18 +139,47 @@ export class SimplySatsAdapter implements WalletProvider {
       return this.api<T>(method, args, retryCount + 1)
     }
 
-    // Handle authentication errors - may need to reconnect
+    // Handle authentication errors - attempt auto-reconnect once
     if (response.status === 401) {
-      console.warn('Session token invalid or expired, may need to reconnect')
-      throw new Error('Authentication failed. Please reconnect your wallet.')
+      if (retryCount === 0) {
+        console.warn('Session token invalid or expired, attempting reconnect...')
+        try {
+          await this.attemptReconnect()
+          return this.api<T>(method, args, retryCount + 1)
+        } catch (reconnectError) {
+          console.error('Auto-reconnect failed:', reconnectError)
+          throw new WalletAuthError()
+        }
+      }
+      throw new WalletAuthError()
     }
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
-      throw new Error(data.message || `HTTP error ${response.status}`)
+      const errorMessage = data.message || `HTTP error ${response.status}`
+
+      // Parse and throw categorized error
+      throw parseWalletError(new Error(errorMessage))
     }
 
     return await response.json()
+  }
+
+  /**
+   * Attempt to reconnect to the wallet
+   * Returns the same promise if already reconnecting to prevent race conditions
+   */
+  private async attemptReconnect(): Promise<string> {
+    if (this.reconnectPromise) {
+      return this.reconnectPromise
+    }
+
+    this.reconnectPromise = this.connect()
+      .finally(() => {
+        this.reconnectPromise = null
+      })
+
+    return this.reconnectPromise
   }
 
   /**
@@ -152,7 +196,7 @@ export class SimplySatsAdapter implements WalletProvider {
     return Promise.race([
       promise,
       new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(message)), ms)
+        setTimeout(() => reject(new TimeoutError(message)), ms)
       )
     ])
   }
@@ -350,13 +394,16 @@ export class SimplySatsAdapter implements WalletProvider {
         unlockBlock: result.unlockBlock || unlockBlock
       }
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('Failed to fetch')) {
-          throw new Error('Lost connection to Simply Sats. Please try again or reconnect your wallet.')
-        }
+      // Re-throw wallet errors as-is
+      if (error instanceof WalletConnectionError ||
+          error instanceof WalletAuthError ||
+          error instanceof InsufficientFundsError ||
+          error instanceof TransactionRejectedError ||
+          error instanceof TimeoutError) {
         throw error
       }
-      throw new Error('Lock failed: Unknown error')
+      // Parse and re-throw other errors
+      throw parseWalletError(error)
     }
   }
 
@@ -444,14 +491,16 @@ export class SimplySatsAdapter implements WalletProvider {
         amount: result.amount || lock.satoshis
       }
     } catch (error) {
-      if (error instanceof Error) {
-        // Enhance error messages for common cases
-        if (error.message.includes('Failed to fetch')) {
-          throw new Error('Lost connection to Simply Sats. Please try again or reconnect your wallet.')
-        }
+      // Re-throw wallet errors as-is
+      if (error instanceof WalletConnectionError ||
+          error instanceof WalletAuthError ||
+          error instanceof InsufficientFundsError ||
+          error instanceof TransactionRejectedError ||
+          error instanceof TimeoutError) {
         throw error
       }
-      throw new Error('Unlock failed: Unknown error')
+      // Parse and re-throw other errors
+      throw parseWalletError(error)
     }
   }
 
@@ -509,16 +558,16 @@ export class SimplySatsAdapter implements WalletProvider {
         origin: `${result.txid}_0`
       }
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('Failed to fetch')) {
-          throw new Error('Lost connection to Simply Sats. Please try again or reconnect.')
-        }
-        if (error.message.includes('rejected') || error.message.includes('denied')) {
-          throw new Error('Inscription was rejected in Simply Sats.')
-        }
+      // Re-throw wallet errors as-is
+      if (error instanceof WalletConnectionError ||
+          error instanceof WalletAuthError ||
+          error instanceof InsufficientFundsError ||
+          error instanceof TransactionRejectedError ||
+          error instanceof TimeoutError) {
         throw error
       }
-      throw new Error('Inscription failed: Unknown error')
+      // Parse and re-throw other errors
+      throw parseWalletError(error)
     }
   }
 
