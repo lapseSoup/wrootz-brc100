@@ -51,6 +51,11 @@ export async function POST(request: NextRequest) {
  * Called when disconnecting wallet
  */
 export async function DELETE() {
+  const session = await getSession()
+  if (!session) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
   try {
     await clearWalletSession()
     return NextResponse.json({ success: true })

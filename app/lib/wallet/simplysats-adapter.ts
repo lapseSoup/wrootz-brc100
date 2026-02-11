@@ -111,7 +111,7 @@ export class SimplySatsAdapter implements WalletProvider {
     }
 
     // Add session token if available (not required for getVersion/getNonce)
-    const unauthenticatedMethods = ['getVersion', 'getNonce']
+    const unauthenticatedMethods = ['getVersion']
     if (this.sessionToken && !unauthenticatedMethods.includes(method)) {
       headers[SESSION_TOKEN_HEADER] = this.sessionToken
 
@@ -119,7 +119,10 @@ export class SimplySatsAdapter implements WalletProvider {
       try {
         const nonceResponse = await fetch(`${SIMPLY_SATS_URL}/getNonce`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            [SESSION_TOKEN_HEADER]: this.sessionToken!
+          },
           body: JSON.stringify({})
         })
         if (nonceResponse.ok) {
@@ -261,8 +264,8 @@ export class SimplySatsAdapter implements WalletProvider {
 
       // Request a session token for authenticated API calls
       // Simply Sats generates a token when waiting for authentication
-      const authResult = await this.withTimeout(
-        this.api<{ authenticated: boolean; token?: string }>('waitForAuthentication'),
+      await this.withTimeout(
+        this.api<{ authenticated: boolean }>('waitForAuthentication'),
         CONNECTION_TIMEOUT,
         'Authentication check timed out.'
       )
@@ -274,10 +277,9 @@ export class SimplySatsAdapter implements WalletProvider {
         'Getting public key timed out. Please approve the request in Simply Sats.'
       )
 
-      // Store session token securely via API (httpOnly cookie)
-      if (authResult.token) {
-        this.sessionToken = authResult.token
-        await this.saveSessionToken(authResult.token, publicKey)
+      // Token is acquired via X-Simply-Sats-New-Token header (handled in api() method)
+      if (this.sessionToken) {
+        await this.saveSessionToken(this.sessionToken, publicKey)
         console.log('Session token acquired and stored securely')
       }
 
@@ -404,11 +406,8 @@ export class SimplySatsAdapter implements WalletProvider {
         this.api<{ txid: string; unlockBlock: number }>('lockBSV', {
           satoshis,
           blocks,
-          // Pass metadata for wallet to tag the output
-          metadata: {
-            app: 'wrootz',
-            ordinalOrigin: ordinalOrigin || null
-          }
+          app: 'wrootz',
+          ordinalOrigin: ordinalOrigin || null
         }),
         60000,
         'Lock transaction timed out. Please approve the transaction in Simply Sats.'
@@ -505,11 +504,7 @@ export class SimplySatsAdapter implements WalletProvider {
       // This is cleaner than manually building the createAction request
       const result = await this.withTimeout(
         this.api<{ txid: string; amount?: number }>('unlockBSV', {
-          outpoint,
-          // Optional metadata for tracking
-          metadata: {
-            app: 'wrootz'
-          }
+          outpoints: [outpoint]
         }),
         60000,
         'Unlock transaction timed out. Please approve the transaction in Simply Sats.'
