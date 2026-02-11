@@ -110,9 +110,27 @@ export class SimplySatsAdapter implements WalletProvider {
       'Content-Type': 'application/json',
     }
 
-    // Add session token if available (not required for getVersion)
-    if (this.sessionToken && method !== 'getVersion') {
+    // Add session token if available (not required for getVersion/getNonce)
+    const unauthenticatedMethods = ['getVersion', 'getNonce']
+    if (this.sessionToken && !unauthenticatedMethods.includes(method)) {
       headers[SESSION_TOKEN_HEADER] = this.sessionToken
+
+      // C2: Fetch CSRF nonce for authenticated requests
+      try {
+        const nonceResponse = await fetch(`${SIMPLY_SATS_URL}/getNonce`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        })
+        if (nonceResponse.ok) {
+          const nonceData = await nonceResponse.json()
+          if (nonceData.nonce) {
+            headers['X-Simply-Sats-Nonce'] = nonceData.nonce
+          }
+        }
+      } catch {
+        // Nonce fetch failed - proceed without it (wallet may not require nonces)
+      }
     }
 
     let response: Response
@@ -125,6 +143,15 @@ export class SimplySatsAdapter implements WalletProvider {
     } catch {
       // Network-level failures (connection refused, etc.)
       throw new WalletConnectionError()
+    }
+
+    // C3: Handle session token rotation
+    const newToken = response.headers.get('X-Simply-Sats-New-Token')
+    if (newToken) {
+      this.sessionToken = newToken
+      if (this.identityKey) {
+        this.saveSessionToken(newToken, this.identityKey)
+      }
     }
 
     // Handle rate limiting with exponential backoff
@@ -295,6 +322,9 @@ export class SimplySatsAdapter implements WalletProvider {
       }
     }
     this.disconnectCallbacks.forEach(cb => cb())
+    // L8: Clear callback arrays on disconnect
+    this.accountChangeCallbacks = []
+    this.disconnectCallbacks = []
   }
 
   async getAddress(): Promise<string> {
@@ -332,6 +362,11 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async sendBSV(to: string, satoshis: number): Promise<SendResult> {
+    // L6: Enforce dust limit
+    if (satoshis < 546) {
+      throw new Error('Amount below dust limit (minimum 546 sats)')
+    }
+
     const result = await this.api<{ txid: string }>('createAction', {
       description: 'Send BSV payment',
       outputs: [{
@@ -610,12 +645,22 @@ export class SimplySatsAdapter implements WalletProvider {
     return script
   }
 
-  onAccountChange(callback: (address: string) => void): void {
+  onAccountChange(callback: (address: string) => void): () => void {
     this.accountChangeCallbacks.push(callback)
+    // L8: Return unsubscribe function
+    return () => {
+      const idx = this.accountChangeCallbacks.indexOf(callback)
+      if (idx !== -1) this.accountChangeCallbacks.splice(idx, 1)
+    }
   }
 
-  onDisconnect(callback: () => void): void {
+  onDisconnect(callback: () => void): () => void {
     this.disconnectCallbacks.push(callback)
+    // L8: Return unsubscribe function
+    return () => {
+      const idx = this.disconnectCallbacks.indexOf(callback)
+      if (idx !== -1) this.disconnectCallbacks.splice(idx, 1)
+    }
   }
 
   async getNetwork(): Promise<'mainnet' | 'testnet'> {
@@ -664,7 +709,17 @@ export class SimplySatsAdapter implements WalletProvider {
       bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
     }
 
-    return bytes.slice(0, 21)
+    // H1: Verify checksum - hash256(payload)[0:4] must match last 4 bytes
+    const payload = bytes.slice(0, 21)
+    const checksum = bytes.slice(21, 25)
+    const hash = Hash.hash256(Array.from(payload))
+    for (let i = 0; i < 4; i++) {
+      if (hash[i] !== checksum[i]) {
+        throw new Error('Invalid Base58Check checksum - address may be corrupted')
+      }
+    }
+
+    return payload
   }
 
   private pushData(hexData: string): string {

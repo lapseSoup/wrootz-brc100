@@ -130,14 +130,18 @@ export async function notifyFollowersOfNewPost(creatorId: string, creatorUsernam
 
   const displayName = getPostDisplayName(postTitle, postBody)
 
-  for (const follower of followers) {
-    await createNotification({
-      userId: follower.followerId,
-      type: 'followed_user_post',
+  // M7: Batch notification creation instead of sequential writes
+  const notifications = followers
+    .filter(f => f.followerId !== creatorId)
+    .map(f => ({
+      userId: f.followerId,
+      type: 'followed_user_post' as const,
       message: `@${creatorUsername} created a new post: "${displayName}"`,
       postId,
       actorId: creatorId
-    })
+    }))
+  if (notifications.length > 0) {
+    await prisma.notification.createMany({ data: notifications })
   }
 }
 
@@ -150,16 +154,18 @@ export async function notifyTagFollowers(tag: string, postId: string, postTitle:
 
   const displayName = getPostDisplayName(postTitle, postBody)
 
-  for (const follower of tagFollowers) {
-    if (follower.userId === actorId) continue // Don't notify the actor
-
-    await createNotification({
-      userId: follower.userId,
-      type: 'followed_tag_activity',
+  // M7: Batch notification creation instead of sequential writes
+  const notifications = tagFollowers
+    .filter(f => f.userId !== actorId)
+    .map(f => ({
+      userId: f.userId,
+      type: 'followed_tag_activity' as const,
       message: `New activity on #${tag}: "${displayName}" by @${actorUsername}`,
       postId,
       actorId
-    })
+    }))
+  if (notifications.length > 0) {
+    await prisma.notification.createMany({ data: notifications })
   }
 }
 

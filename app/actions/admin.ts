@@ -170,6 +170,7 @@ export async function getAllUsers() {
     return { error: adminCheck.error, users: [] }
   }
 
+  // M8: Bounded admin query
   const users = await prisma.user.findMany({
     select: {
       id: true,
@@ -187,7 +188,8 @@ export async function getAllUsers() {
         }
       }
     },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    take: 1000
   })
 
   return { users }
@@ -200,6 +202,7 @@ export async function getAllPosts() {
     return { error: adminCheck.error, posts: [] }
   }
 
+  // M8: Bounded admin query
   const posts = await prisma.post.findMany({
     select: {
       id: true,
@@ -216,7 +219,8 @@ export async function getAllPosts() {
         select: { locks: true }
       }
     },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    take: 1000
   })
 
   return { posts }
@@ -268,6 +272,7 @@ export async function getAllLocks() {
     return { error: adminCheck.error, locks: [] }
   }
 
+  // M8: Bounded admin query
   const locks = await prisma.lock.findMany({
     select: {
       id: true,
@@ -285,7 +290,8 @@ export async function getAllLocks() {
       user: { select: { username: true } },
       post: { select: { id: true, title: true } }
     },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    take: 1000
   })
 
   return { locks }

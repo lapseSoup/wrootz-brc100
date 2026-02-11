@@ -246,12 +246,21 @@ export async function getPostsWithTU(options?: {
   const nextCursor = hasMore ? resultPosts[resultPosts.length - 1]?.id || null : null
 
   // Add computed fields
+  const mappedPosts = resultPosts.map(mapPost)
+
+  // H5: Re-sort by recalculated totalTu since DB sort used stale values
+  if (!(options?.filter === 'discover' || options?.archive)) {
+    mappedPosts.sort((a: { totalTu: number }, b: { totalTu: number }) => b.totalTu - a.totalTu)
+  }
+
   return {
-    posts: resultPosts.map(mapPost),
+    posts: mappedPosts,
     nextCursor
   }
 }
 
+// L1: Post with Prisma relations (locks, incomingLinks, outgoingLinks)
+// Using any because the Prisma-generated type with dynamic includes is complex
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PostWithRelations = any
 
@@ -320,7 +329,7 @@ export async function getPostById(id: string) {
  * Get top tags by total wrootz.
  */
 export async function getTopTags(limit: number = 5) {
-  // Get all active locks with tags
+  // M8: Bounded query for active locks with tags
   const locks = await prisma.lock.findMany({
     where: {
       expired: false,
@@ -329,7 +338,8 @@ export async function getTopTags(limit: number = 5) {
     select: {
       tag: true,
       currentTu: true
-    }
+    },
+    take: 10000
   })
 
   // Aggregate by tag
@@ -386,7 +396,7 @@ export async function getTrendingTags(limit: number = 5) {
  * Get top lockers by total wrootz.
  */
 export async function getTopLockers(limit: number = 5) {
-  // Get all active locks grouped by user
+  // M8: Bounded query for active locks grouped by user
   const locks = await prisma.lock.findMany({
     where: { expired: false },
     select: {
@@ -394,7 +404,8 @@ export async function getTopLockers(limit: number = 5) {
       user: {
         select: { id: true, username: true }
       }
-    }
+    },
+    take: 10000
   })
 
   // Aggregate by user
@@ -468,7 +479,7 @@ export async function getRisingPosts(limit: number = 5) {
   const currentBlock = await getCurrentBlock()
   const recentBlockThreshold = currentBlock - 144 // ~24 hours
 
-  // Get all recent locks
+  // M8: Bounded query for recent locks
   const recentLocks = await prisma.lock.findMany({
     where: {
       startBlock: { gte: recentBlockThreshold }
@@ -483,7 +494,8 @@ export async function getRisingPosts(limit: number = 5) {
           totalTu: true
         }
       }
-    }
+    },
+    take: 10000
   })
 
   // Aggregate recent wrootz by post

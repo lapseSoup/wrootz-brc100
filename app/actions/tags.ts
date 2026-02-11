@@ -1,6 +1,7 @@
 'use server'
 
 import prisma from '@/app/lib/db'
+import { getCurrentBlock } from './posts/helpers'
 
 export async function getTagStats(tag: string) {
   // Get all locks for this tag (active and expired)
@@ -27,7 +28,7 @@ export async function getTagStats(tag: string) {
 
   // Calculate stats
   const totalWrootz = activeLocks.reduce((sum, lock) => sum + lock.currentTu, 0)
-  const totalLockedSats = activeLocks.reduce((sum, lock) => sum + lock.amount, 0)
+  const totalLockedBsv = activeLocks.reduce((sum, lock) => sum + lock.amount, 0)
   const peakWrootz = [...activeLocks, ...expiredLocks].reduce((max, lock) =>
     Math.max(max, lock.initialTu), 0
   )
@@ -69,7 +70,7 @@ export async function getTagStats(tag: string) {
   return {
     tag,
     totalWrootz,
-    totalLockedSats,
+    totalLockedBsv,
     peakWrootz,
     activeLockCount: activeLocks.length,
     expiredLockCount: expiredLocks.length,
@@ -96,16 +97,8 @@ export async function getTagWrootzHistory(tag: string) {
 
   if (locks.length === 0) return []
 
-  // Get current block
-  const blockRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/block`, {
-    cache: 'no-store'
-  }).catch(() => null)
-
-  let currentBlock = 880000 // fallback
-  if (blockRes?.ok) {
-    const data = await blockRes.json()
-    currentBlock = data.currentBlock
-  }
+  // M5: Call getCurrentBlock() directly instead of self-fetching via HTTP
+  const currentBlock = (await getCurrentBlock()) || 880000
 
   // Find the earliest start block
   const earliestBlock = Math.min(...locks.map(l => l.startBlock))
@@ -192,13 +185,14 @@ export async function getPostsByTag(tags: string | string[], limit: number = 50)
   // Convert to lowercase for case-insensitive matching
   const lowerTags = tagArray.map(t => t.toLowerCase())
 
-  // Get all active locks with tags (SQLite doesn't support case-insensitive IN)
-  // We'll filter in JavaScript for case-insensitive matching
+  // M6: Bounded query - get active locks with tags
+  // SQLite doesn't support case-insensitive IN, so we filter in JavaScript
   const allActiveLocks = await prisma.lock.findMany({
     where: {
       expired: false,
       tag: { not: null }
     },
+    take: 5000,
     include: {
       user: { select: { id: true, username: true } },
       post: {

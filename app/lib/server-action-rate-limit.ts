@@ -17,6 +17,15 @@ const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_RE
     })
   : null
 
+// M11: Warn if Redis is not configured in production (skip during build phase)
+if (!redis && process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build') {
+  console.warn(
+    'WARNING: Redis is not configured for rate limiting in production. ' +
+    'Rate limiting will use in-memory storage which does not work across multiple instances. ' +
+    'Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN environment variables.'
+  )
+}
+
 // In-memory fallback store (for development or when Redis unavailable)
 const inMemoryStore = new Map<string, { count: number; resetAt: number }>()
 

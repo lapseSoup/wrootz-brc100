@@ -31,6 +31,9 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
     limit: 50
   })
 
+  // L14: Track post IDs to avoid unnecessary re-renders
+  const prevPostIdsRef = useRef<string>('')
+
   // Update displayed posts when new data arrives
   useEffect(() => {
     if (posts.length > 0) {
@@ -41,8 +44,13 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
       }
       // Update the ref with new top ID
       currentTopIdRef.current = newTopId ?? null
-      // Always update posts (wrootz values decay, etc.)
-      setDisplayedPosts(posts)
+
+      // Only update state if post data actually changed (avoid re-renders on SWR polls)
+      const newPostIds = posts.map(p => `${p.id}:${p.totalTu}`).join(',')
+      if (newPostIds !== prevPostIdsRef.current) {
+        prevPostIdsRef.current = newPostIds
+        setDisplayedPosts(posts)
+      }
     }
   }, [posts])
 

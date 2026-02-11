@@ -5,6 +5,8 @@ import { getSession } from '@/app/lib/session'
 import { revalidatePath } from 'next/cache'
 import { checkStrictRateLimit } from '@/app/lib/server-action-rate-limit'
 import { verifyPayment } from '@/app/lib/blockchain-verify'
+import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
+import { notifyPostSold, notifyLockerProfit } from '../notifications'
 
 /**
  * List a post for sale.
@@ -13,6 +15,12 @@ export async function listForSale(formData: FormData) {
   const session = await getSession()
   if (!session) {
     return { error: 'You must be logged in' }
+  }
+
+  // L5: Rate limit listing operations
+  const rateLimit = await checkStrictRateLimit('listForSale')
+  if (!rateLimit.success) {
+    return { error: `Too many attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
   }
 
   const postId = formData.get('postId') as string
@@ -91,6 +99,12 @@ export async function cancelSale(formData: FormData) {
     return { error: 'You must be logged in' }
   }
 
+  // L5: Rate limit cancel operations
+  const rateLimit = await checkStrictRateLimit('cancelSale')
+  if (!rateLimit.success) {
+    return { error: `Too many attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
+  }
+
   const postId = formData.get('postId') as string
 
   const post = await prisma.post.findUnique({
@@ -125,6 +139,7 @@ export async function cancelSale(formData: FormData) {
     data: {
       forSale: false,
       salePrice: 0,
+      lockerSharePercentage: 10, // L11: Reset to default
       listedAt: null // Clear the listing timestamp
     }
   })
@@ -170,108 +185,149 @@ export async function buyPost(formData: FormData) {
     return { error: 'Valid transaction ID is required' }
   }
 
-  // Get post with active locks
-  const post = await prisma.post.findUnique({
-    where: { id: postId },
-    include: {
-      owner: { select: { id: true, username: true, walletAddress: true } },
-      locks: {
-        where: { expired: false },
-        include: { user: { select: { id: true, username: true } } }
+  // H3: Idempotency protection keyed on postId to prevent double-purchase
+  const idempotencyKey = generateIdempotencyKey('buyPost', postId)
+  const idempotencyResult = await withIdempotencyAndLocking(idempotencyKey, async () => {
+    // Get post with active locks
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        owner: { select: { id: true, username: true, walletAddress: true } },
+        locks: {
+          where: { expired: false },
+          include: { user: { select: { id: true, username: true } } }
+        }
       }
+    })
+
+    if (!post) {
+      return { error: 'Post not found' }
+    }
+
+    if (!post.forSale) {
+      return { error: 'Post is not for sale' }
+    }
+
+    if (post.ownerId === session.userId) {
+      return { error: 'Cannot buy your own post' }
+    }
+
+    // Verify payment was sent to seller's wallet for the correct amount
+    if (!post.owner.walletAddress) {
+      return { error: 'Seller has no wallet address configured. Cannot verify payment.' }
+    }
+
+    const expectedSatoshis = Math.round(post.salePrice * 100_000_000)
+    try {
+      const verification = await verifyPayment(txid, expectedSatoshis, post.owner.walletAddress)
+      if (!verification.txExists) {
+        return { error: 'Payment transaction not found on blockchain. Please wait for confirmation.' }
+      }
+      if (!verification.paymentFound) {
+        return { error: 'No payment to the seller\'s address was found in this transaction.' }
+      }
+      if (!verification.amountCorrect) {
+        return { error: `Payment amount insufficient. Expected ${expectedSatoshis} sats, found ${verification.onChainAmount ?? 0} sats.` }
+      }
+    } catch (error) {
+      console.error('Payment verification error:', error)
+      return { error: 'Unable to verify payment. Please try again.' }
+    }
+
+    // Calculate distribution for record-keeping
+    const lockerShare = post.salePrice * (post.lockerSharePercentage / 100)
+    const ownerShare = post.salePrice - lockerShare
+
+    // Transfer ownership and record transaction
+    try {
+      await prisma.$transaction([
+        // Update post ownership
+        prisma.post.update({
+          where: { id: postId },
+          data: {
+            ownerId: session.userId,
+            forSale: false,
+            salePrice: 0,
+            listedAt: null
+          }
+        }),
+        // Record buy transaction for buyer
+        prisma.transaction.create({
+          data: {
+            action: 'Buy',
+            amount: post.salePrice,
+            satoshis: Math.round(post.salePrice * 100_000_000),
+            txid,
+            confirmed: true, // We verified it exists
+            description: `Purchased: ${post.title}`,
+            userId: session.userId,
+            postId
+          }
+        }),
+        // Record sale transaction for seller (profit)
+        prisma.transaction.create({
+          data: {
+            action: 'Profit',
+            amount: ownerShare,
+            satoshis: Math.round(ownerShare * 100_000_000),
+            txid,
+            confirmed: true,
+            description: `Sold: ${post.title} (${post.lockerSharePercentage}% to lockers)`,
+            userId: post.ownerId,
+            postId
+          }
+        })
+      ])
+    } catch (error) {
+      console.error('Purchase transaction error:', error)
+      return { error: 'Failed to complete purchase. Please contact support.' }
+    }
+
+    // H4: Notify seller and lockers
+    try {
+      const buyer = await prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { username: true }
+      })
+      const buyerUsername = buyer?.username || 'Unknown'
+
+      await notifyPostSold(post.ownerId, buyerUsername, session.userId, postId, post.title, post.salePrice, post.body)
+
+      // Notify lockers of their profit share
+      if (post.locks.length > 0 && lockerShare > 0) {
+        const profitPerLocker = lockerShare / post.locks.length
+        for (const lock of post.locks) {
+          await notifyLockerProfit(lock.userId, postId, post.title, profitPerLocker, post.body)
+        }
+      }
+    } catch (notifyError) {
+      // Non-fatal: purchase succeeded even if notifications fail
+      console.error('Notification error after purchase:', notifyError)
+    }
+
+    return {
+      success: true as const,
+      ownerShare,
+      lockerShare,
+      newOwner: session.userId
     }
   })
 
-  if (!post) {
-    return { error: 'Post not found' }
-  }
-
-  if (!post.forSale) {
-    return { error: 'Post is not for sale' }
-  }
-
-  if (post.ownerId === session.userId) {
-    return { error: 'Cannot buy your own post' }
-  }
-
-  // Verify payment was sent to seller's wallet for the correct amount
-  if (!post.owner.walletAddress) {
-    return { error: 'Seller has no wallet address configured. Cannot verify payment.' }
-  }
-
-  const expectedSatoshis = Math.round(post.salePrice * 100_000_000)
-  try {
-    const verification = await verifyPayment(txid, expectedSatoshis, post.owner.walletAddress)
-    if (!verification.txExists) {
-      return { error: 'Payment transaction not found on blockchain. Please wait for confirmation.' }
+  // Handle idempotency result
+  if (!idempotencyResult.success) {
+    if (idempotencyResult.cached && typeof idempotencyResult.cached === 'object') {
+      return idempotencyResult.cached
     }
-    if (!verification.paymentFound) {
-      return { error: 'No payment to the seller\'s address was found in this transaction.' }
-    }
-    if (!verification.amountCorrect) {
-      return { error: `Payment amount insufficient. Expected ${expectedSatoshis} sats, found ${verification.onChainAmount ?? 0} sats.` }
-    }
-  } catch (error) {
-    console.error('Payment verification error:', error)
-    return { error: 'Unable to verify payment. Please try again.' }
+    return { error: idempotencyResult.error }
   }
 
-  // Calculate distribution for record-keeping
-  const lockerShare = post.salePrice * (post.lockerSharePercentage / 100)
-  const ownerShare = post.salePrice - lockerShare
-
-  // Transfer ownership and record transaction
-  try {
-    await prisma.$transaction([
-      // Update post ownership
-      prisma.post.update({
-        where: { id: postId },
-        data: {
-          ownerId: session.userId,
-          forSale: false,
-          salePrice: 0,
-          listedAt: null
-        }
-      }),
-      // Record buy transaction for buyer
-      prisma.transaction.create({
-        data: {
-          action: 'Buy',
-          amount: post.salePrice,
-          satoshis: Math.round(post.salePrice * 100_000_000),
-          txid,
-          confirmed: true, // We verified it exists
-          description: `Purchased: ${post.title}`,
-          userId: session.userId,
-          postId
-        }
-      }),
-      // Record sale transaction for seller (profit)
-      prisma.transaction.create({
-        data: {
-          action: 'Profit',
-          amount: ownerShare,
-          satoshis: Math.round(ownerShare * 100_000_000),
-          txid,
-          confirmed: true,
-          description: `Sold: ${post.title} (${post.lockerSharePercentage}% to lockers)`,
-          userId: post.ownerId,
-          postId
-        }
-      })
-    ])
-  } catch (error) {
-    console.error('Purchase transaction error:', error)
-    return { error: 'Failed to complete purchase. Please contact support.' }
+  const result = idempotencyResult.result
+  if ('error' in result) {
+    return result
   }
 
   revalidatePath(`/post/${postId}`)
   revalidatePath('/')
 
-  return {
-    success: true,
-    ownerShare,
-    lockerShare,
-    newOwner: session.userId
-  }
+  return result
 }

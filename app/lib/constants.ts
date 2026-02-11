@@ -25,11 +25,18 @@ export function bsvToSats(bsv: number): number {
   return Math.round(bsv * SATS_PER_BSV)
 }
 
+/**
+ * M4: WARNING - Returns imprecise floats. Use ONLY for display purposes.
+ * For calculations, always use satoshis (integers) as the canonical unit.
+ */
 export function satsToBsv(sats: number): number {
   return sats / SATS_PER_BSV
 }
 
-// wrootz calculation: wrootz = (amount_in_satoshis × duration_blocks) / NORMALIZATION_FACTOR
+/**
+ * @deprecated Use calculateWrootzFromSats() instead to avoid float imprecision.
+ * wrootz calculation: wrootz = (amount_in_satoshis × duration_blocks) / NORMALIZATION_FACTOR
+ */
 export function calculateWrootz(amountBSV: number, durationBlocks: number): number {
   const amountInSatoshis = amountBSV * SATS_PER_BSV
   return (amountInSatoshis * durationBlocks) / NORMALIZATION_FACTOR

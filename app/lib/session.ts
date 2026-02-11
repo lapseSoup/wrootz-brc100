@@ -64,6 +64,8 @@ export async function getIronSessionInstance(): Promise<IronSession<SessionData>
 
 export async function setSession(data: { userId: string; username: string }): Promise<void> {
   const session = await getIronSessionInstance()
+  // M10: Destroy existing session before setting new data to prevent session fixation
+  session.destroy()
   session.userId = data.userId
   session.username = data.username
   session.isLoggedIn = true

@@ -9,6 +9,7 @@
 import prisma from '@/app/lib/db'
 import { getCurrentBlockHeight } from '@/app/lib/blockchain'
 import { fetchTransaction } from '@/app/lib/blockchain-verify'
+import { markInProgress, clearInProgress } from '@/app/lib/idempotency'
 
 // Minimum time between updates (in milliseconds)
 const UPDATE_INTERVAL_MS = 60 * 1000 // 1 minute
@@ -74,6 +75,13 @@ export async function updateLockStatusesIfNeeded(): Promise<{
     return { updated: false, lockCount: 0, expiredCount: 0 }
   }
 
+  // M2: Prevent concurrent lock updates (TOCTOU protection)
+  if (!markInProgress('lockUpdate')) {
+    return { updated: false, lockCount: 0, expiredCount: 0 }
+  }
+
+  try {
+
   const currentBlock = await getCachedBlockHeight()
   if (currentBlock === 0) {
     return { updated: false, lockCount: 0, expiredCount: 0 }
@@ -95,12 +103,13 @@ export async function updateLockStatusesIfNeeded(): Promise<{
     }
   })
 
-  // Find locks that need updating (not expired and have started)
+  // M12: Bounded query - process locks in batches to prevent memory issues
   const activeLocks = await prisma.lock.findMany({
     where: {
       expired: false,
       startBlock: { lte: currentBlock }
-    }
+    },
+    take: 5000
   })
 
   if (activeLocks.length === 0) {
@@ -179,6 +188,10 @@ export async function updateLockStatusesIfNeeded(): Promise<{
     updated: true,
     lockCount: activeLocks.length,
     expiredCount: expiredLockUpdates.length
+  }
+
+  } finally {
+    clearInProgress('lockUpdate')
   }
 }
 

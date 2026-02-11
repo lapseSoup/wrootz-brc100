@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "next lint",
     "clean": "rm -rf .next",
-    "restart": "rm -rf .next && next dev"
+    "restart": "rm -rf .next && next dev",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@bsv/sdk": "^1.10.3",
@@ -27,8 +29,7 @@
     "prisma": "^5.22.0",
     "react": "^18",
     "react-dom": "^18",
-    "swr": "^2.4.0",
-    "yours-wallet-provider": "^3.7.0"
+    "swr": "^2.4.0"
   },
   "devDependencies": {
     "@types/node": "^20",
@@ -39,6 +40,7 @@
     "eslint-config-next": "14.2.35",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }

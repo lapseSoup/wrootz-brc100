@@ -35,6 +35,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+  // L3: Warn when cron endpoint is unprotected in development
+  if (!cronSecret && process.env.NODE_ENV !== 'production') {
+    console.warn('WARNING: Cron endpoint is unprotected. Set CRON_SECRET for security.')
+  }
   if (cronSecret) {
     const authHeader = request.headers.get('authorization')
     const providedSecret = authHeader?.replace('Bearer ', '')

@@ -76,11 +76,12 @@ export interface WalletProvider {
   // 1Sat Ordinals
   inscribe(data: InscriptionData): Promise<InscriptionResult>
 
-  // Events
-  onAccountChange(callback: (address: string) => void): void
-  onDisconnect(callback: () => void): void
+  // Events (L8: return unsubscribe functions)
+  onAccountChange(callback: (address: string) => void): void | (() => void)
+  onDisconnect(callback: () => void): void | (() => void)
 
   // BRC-100 specific (optional)
+  getNetwork?(): Promise<'mainnet' | 'testnet'>
   listLocks?(): Promise<LockedOutput[]>
   unlockBSV?(outpoint: string): Promise<UnlockResult>
   getBlockHeight?(): Promise<number>

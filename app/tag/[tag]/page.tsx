@@ -59,7 +59,7 @@ export default async function TagPage({
           </div>
           <div className="p-4 rounded-lg bg-[var(--background)]">
             <p className="text-sm text-[var(--muted)]">Locked Sats</p>
-            <p className="text-xl font-bold">{formatSats(bsvToSats(stats.totalLockedSats))}</p>
+            <p className="text-xl font-bold">{formatSats(bsvToSats(stats.totalLockedBsv))}</p>
           </div>
           <div className="p-4 rounded-lg bg-[var(--background)]">
             <p className="text-sm text-[var(--muted)]">Posts</p>

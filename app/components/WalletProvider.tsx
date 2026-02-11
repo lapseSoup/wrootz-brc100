@@ -51,6 +51,19 @@ export function WalletProvider({ children }: WalletProviderProps) {
 
     try {
       const address = await adapter.connect()
+
+      // L7: Validate network after connection
+      try {
+        const network = await adapter.getNetwork?.()
+        if (network && network !== 'mainnet') {
+          await adapter.disconnect()
+          throw new Error('Wrong network. Please switch your wallet to mainnet.')
+        }
+      } catch (e) {
+        // getNetwork may not be available on all adapters - only reject if it returns non-mainnet
+        if (e instanceof Error && e.message.includes('Wrong network')) throw e
+      }
+
       const balance = await adapter.getBalance()
 
       // Save preference

@@ -5,6 +5,8 @@
  * All verification is FREE - no transaction costs, just API calls.
  */
 
+import { Hash } from '@bsv/sdk'
+
 const WHATSONCHAIN_API = 'https://api.whatsonchain.com/v1/bsv/main'
 
 export interface TransactionOutput {
@@ -455,11 +457,15 @@ export async function verifyPayment(
             totalPaymentToRecipient += output.value
           }
         } else if (recipientScriptSuffix.length === 66 || recipientScriptSuffix.length === 130) {
-          // Compressed (33 bytes = 66 hex) or uncompressed (65 bytes = 130 hex) public key
-          // We include the pubkey in the P2PKH match by checking if the script contains it
-          // For a proper match, we'd need hash160 - but the script already has the hash
-          // So we check if any output script's asm references this key
-          if (output.scriptPubKey.asm && output.scriptPubKey.asm.includes(recipientScriptSuffix)) {
+          // H2: Compressed (33 bytes = 66 hex) or uncompressed (65 bytes = 130 hex) public key
+          // Compute hash160(pubkey) and compare against the P2PKH script's embedded pubKeyHash
+          const pubKeyBytes: number[] = []
+          for (let i = 0; i < recipientScriptSuffix.length; i += 2) {
+            pubKeyBytes.push(parseInt(recipientScriptSuffix.slice(i, i + 2), 16))
+          }
+          const expectedPubKeyHash = Array.from(Hash.hash160(pubKeyBytes))
+            .map(b => b.toString(16).padStart(2, '0')).join('')
+          if (outputPubKeyHash === expectedPubKeyHash) {
             totalPaymentToRecipient += output.value
           }
         }
@@ -469,8 +475,8 @@ export async function verifyPayment(
     if (totalPaymentToRecipient > 0) {
       result.paymentFound = true
       result.onChainAmount = totalPaymentToRecipient
-      // Allow 1% tolerance for miner fees / rounding
-      const tolerance = Math.max(1, Math.floor(expectedSatoshis * 0.01))
+      // M1: Fixed tolerance of 100 sats (1% was too generous for large amounts)
+      const tolerance = 100
       result.amountCorrect = totalPaymentToRecipient >= (expectedSatoshis - tolerance)
     }
 

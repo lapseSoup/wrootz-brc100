@@ -129,6 +129,9 @@ export class BRC100WalletAdapter implements WalletProvider {
         this._isConnected = true
         this.connectedSubstrate = substrate.type
         if (typeof window !== 'undefined') {
+          // L9: Identity keys are public keys (not secrets). The risk is identity
+          // correlation under XSS, not fund theft. Moving to httpOnly cookies would
+          // require architectural changes beyond current scope.
           localStorage.setItem('brc100_identity_key', publicKey)
           localStorage.setItem('brc100_substrate', substrate.type)
         }
@@ -175,6 +178,9 @@ export class BRC100WalletAdapter implements WalletProvider {
       localStorage.removeItem('brc100_substrate')
     }
     this.disconnectCallbacks.forEach(cb => cb())
+    // L8: Clear callback arrays on disconnect
+    this.accountChangeCallbacks = []
+    this.disconnectCallbacks = []
   }
 
   async getAddress(): Promise<string> {
@@ -270,6 +276,11 @@ export class BRC100WalletAdapter implements WalletProvider {
   async sendBSV(to: string, satoshis: number): Promise<SendResult> {
     if (!this.walletClient) {
       throw new Error('Wallet not connected')
+    }
+
+    // L6: Enforce dust limit
+    if (satoshis < 546) {
+      throw new Error('Amount below dust limit (minimum 546 sats)')
     }
 
     // Create a payment action using BRC-100
@@ -483,7 +494,7 @@ export class BRC100WalletAdapter implements WalletProvider {
           // Send to self (default basket)
           outputs: [{
             lockingScript: await this.createP2PKHFromIdentity(),
-            satoshis: lock.satoshis - 1, // Minus 1 sat for fee
+            satoshis: lock.satoshis, // Wallet handles fee calculation
             outputDescription: 'Unlocked funds',
             basket: 'default'
           }],
@@ -604,12 +615,22 @@ export class BRC100WalletAdapter implements WalletProvider {
     }
   }
 
-  onAccountChange(callback: (address: string) => void): void {
+  onAccountChange(callback: (address: string) => void): () => void {
     this.accountChangeCallbacks.push(callback)
+    // L8: Return unsubscribe function
+    return () => {
+      const idx = this.accountChangeCallbacks.indexOf(callback)
+      if (idx !== -1) this.accountChangeCallbacks.splice(idx, 1)
+    }
   }
 
-  onDisconnect(callback: () => void): void {
+  onDisconnect(callback: () => void): () => void {
     this.disconnectCallbacks.push(callback)
+    // L8: Return unsubscribe function
+    return () => {
+      const idx = this.disconnectCallbacks.indexOf(callback)
+      if (idx !== -1) this.disconnectCallbacks.splice(idx, 1)
+    }
   }
 
   // BRC-100 specific methods
@@ -732,7 +753,17 @@ export class BRC100WalletAdapter implements WalletProvider {
       bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
     }
 
-    return bytes.slice(0, 21) // Return version byte + 20 byte hash
+    // H1: Verify checksum - hash256(payload)[0:4] must match last 4 bytes
+    const payload = bytes.slice(0, 21)
+    const checksum = bytes.slice(21, 25)
+    const hash = Hash.hash256(Array.from(payload))
+    for (let i = 0; i < 4; i++) {
+      if (hash[i] !== checksum[i]) {
+        throw new Error('Invalid Base58Check checksum - address may be corrupted')
+      }
+    }
+
+    return payload // Return version byte + 20 byte hash
   }
 
   /**

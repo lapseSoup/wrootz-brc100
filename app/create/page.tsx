@@ -153,7 +153,7 @@ export default function CreatePostPage() {
       // Add inscription data
       formData.set('inscriptionTxid', inscriptionResult.txid)
       formData.set('inscriptionId', inscriptionResult.origin)
-      formData.set('contentHash', await hashContent(contentJson))
+      formData.set('contentHash', await hashContent(`${titleValue || ''}${bodyValue}`))
 
       // Add reply-to post ID if this is a reply
       if (replyToId) {
