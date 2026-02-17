@@ -259,6 +259,15 @@ export async function buyPost(formData: FormData) {
     const lockerShare = post.salePrice * (post.lockerSharePercentage / 100)
     const ownerShare = post.salePrice - lockerShare
 
+    // Pre-calculate locker profit amounts before the transaction
+    const totalLockTu = post.locks.reduce((sum: number, lock: { currentTu: number }) => sum + lock.currentTu, 0)
+    const lockerProfits = post.locks.map((lock) => ({
+      userId: lock.userId,
+      profit: totalLockTu > 0
+        ? lockerShare * (lock.currentTu / totalLockTu)
+        : lockerShare / post.locks.length
+    }))
+
     // Transfer ownership and record transaction
     try {
       await prisma.$transaction([
@@ -297,7 +306,22 @@ export async function buyPost(formData: FormData) {
             userId: post.ownerId,
             postId
           }
-        })
+        }),
+        // Record LockerProfit transactions for each locker (audit trail)
+        ...lockerProfits.map((lp) =>
+          prisma.transaction.create({
+            data: {
+              action: 'LockerProfit',
+              amount: lp.profit,
+              satoshis: bsvToSatoshis(lp.profit),
+              txid,
+              confirmed: true,
+              description: `Locker profit share from sale: ${post.title}`,
+              userId: lp.userId,
+              postId
+            }
+          })
+        )
       ])
     } catch (error) {
       console.error('Purchase transaction error:', error)
@@ -314,14 +338,10 @@ export async function buyPost(formData: FormData) {
 
       await notifyPostSold(post.ownerId, buyerUsername, session.userId, postId, post.title, post.salePrice, post.body)
 
-      // Notify lockers of their proportional profit share (based on currentTu)
-      if (post.locks.length > 0 && lockerShare > 0) {
-        const totalLockTu = post.locks.reduce((sum: number, lock: { currentTu: number }) => sum + lock.currentTu, 0)
-        for (const lock of post.locks) {
-          const profitForLocker = totalLockTu > 0
-            ? lockerShare * (lock.currentTu / totalLockTu)
-            : lockerShare / post.locks.length // Fallback to equal split if all locks have 0 Tu
-          await notifyLockerProfit(lock.userId, postId, post.title, profitForLocker, post.body)
+      // Notify lockers of their proportional profit share (based on pre-calculated amounts)
+      if (lockerProfits.length > 0 && lockerShare > 0) {
+        for (const lp of lockerProfits) {
+          await notifyLockerProfit(lp.userId, postId, post.title, lp.profit, post.body)
         }
       }
     } catch (notifyError) {
