@@ -30,7 +30,20 @@ export default function TagInput({
 
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
-  const debounceRef = useRef<NodeJS.Timeout | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mountedRef = useRef(true)
+
+  // Track mounted state to avoid setting state after unmount
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+    }
+  }, [])
 
   // Fetch suggestions
   const fetchSuggestions = useCallback(async (searchQuery: string) => {
@@ -42,14 +55,15 @@ export default function TagInput({
     setLoading(true)
     try {
       const res = await fetch(`/api/tags/search?q=${encodeURIComponent(searchQuery)}`)
+      if (!mountedRef.current) return
       if (res.ok) {
         const data = await res.json()
-        setSuggestions(data)
+        if (mountedRef.current) setSuggestions(data)
       }
     } catch {
       console.error('Failed to fetch tag suggestions')
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }, [])
 
@@ -66,12 +80,27 @@ export default function TagInput({
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
+        debounceRef.current = null
       }
     }
   }, [value, fetchSuggestions])
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault() // Always prevent form submission
+      if (selectedIndex >= 0 && suggestions[selectedIndex]) {
+        onChange(suggestions[selectedIndex].tag)
+        setShowSuggestions(false)
+        setSelectedIndex(-1)
+      } else if (value.trim()) {
+        onChange(value.trim())
+        setShowSuggestions(false)
+        setSelectedIndex(-1)
+      }
+      return
+    }
+
     if (!showSuggestions || suggestions.length === 0) {
       return
     }
@@ -86,15 +115,6 @@ export default function TagInput({
       case 'ArrowUp':
         e.preventDefault()
         setSelectedIndex((prev) => (prev > 0 ? prev - 1 : -1))
-        break
-      case 'Enter':
-        e.preventDefault()
-        if (selectedIndex >= 0) {
-          const selected = suggestions[selectedIndex]
-          onChange(selected.tag)
-          setShowSuggestions(false)
-          setSelectedIndex(-1)
-        }
         break
       case 'Escape':
         setShowSuggestions(false)
