@@ -17,7 +17,9 @@ const UPDATE_INTERVAL_MS = 60 * 1000 // 1 minute
 // Block height cache duration
 const BLOCK_CACHE_MS = 30 * 1000 // 30 seconds
 
-// In-memory cache for block height and last update time
+// In-memory cache for block height and last update time.
+// Note: These reset on serverless cold starts, but the code falls back gracefully
+// by re-fetching from the blockchain API when cache is empty/stale.
 let cachedBlockHeight = 0
 let blockHeightCacheTime = 0
 let lastUpdateTime = 0
@@ -69,18 +71,18 @@ export async function updateLockStatusesIfNeeded(): Promise<{
   lockCount: number
   expiredCount: number
 }> {
+  // Acquire distributed lock BEFORE throttle check to prevent TOCTOU race
+  if (!(await markInProgress('lockUpdate'))) {
+    return { updated: false, lockCount: 0, expiredCount: 0 }
+  }
+
+  try {
+
   // Check if enough time has passed since last update
   const now = Date.now()
   if (now - lastUpdateTime < UPDATE_INTERVAL_MS) {
     return { updated: false, lockCount: 0, expiredCount: 0 }
   }
-
-  // M2: Prevent concurrent lock updates (TOCTOU protection)
-  if (!markInProgress('lockUpdate')) {
-    return { updated: false, lockCount: 0, expiredCount: 0 }
-  }
-
-  try {
 
   const currentBlock = await getCachedBlockHeight()
   if (currentBlock === 0) {
@@ -103,95 +105,118 @@ export async function updateLockStatusesIfNeeded(): Promise<{
     }
   })
 
-  // M12: Bounded query - process locks in batches to prevent memory issues
-  const activeLocks = await prisma.lock.findMany({
-    where: {
-      expired: false,
-      startBlock: { lte: currentBlock }
-    },
-    take: 5000
-  })
+  // Process locks in batches with cursor-based pagination
+  const BATCH_SIZE = 2000
+  let totalLockCount = 0
+  let totalExpiredCount = 0
+  let cursor: string | undefined
 
-  if (activeLocks.length === 0) {
-    return { updated: true, lockCount: 0, expiredCount: 0 }
-  }
+  while (true) {
+    const activeLocks = await prisma.lock.findMany({
+      where: {
+        expired: false,
+        startBlock: { lte: currentBlock }
+      },
+      take: BATCH_SIZE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      orderBy: { id: 'asc' }
+    })
 
-  // Group locks by their new state
-  const expiredLockUpdates: { id: string; postId: string; currentTu: number }[] = []
-  const decayLockUpdates: { id: string; remainingBlocks: number; currentTu: number }[] = []
+    if (activeLocks.length === 0) break
+    cursor = activeLocks[activeLocks.length - 1].id
 
-  for (const lock of activeLocks) {
-    const blocksElapsed = currentBlock - lock.startBlock
-    const remainingBlocks = Math.max(0, lock.durationBlocks - blocksElapsed)
+    // Group locks by their new state
+    const expiredLockUpdates: { id: string; postId: string; currentTu: number }[] = []
+    const decayLockUpdates: { id: string; postId: string; remainingBlocks: number; currentTu: number }[] = []
 
-    if (remainingBlocks <= 0) {
-      expiredLockUpdates.push({
-        id: lock.id,
-        postId: lock.postId,
-        currentTu: lock.currentTu
+    for (const lock of activeLocks) {
+      const blocksElapsed = currentBlock - lock.startBlock
+      const remainingBlocks = Math.max(0, lock.durationBlocks - blocksElapsed)
+
+      if (remainingBlocks <= 0) {
+        expiredLockUpdates.push({
+          id: lock.id,
+          postId: lock.postId,
+          currentTu: lock.currentTu
+        })
+      } else {
+        const decayFactor = remainingBlocks / lock.durationBlocks
+        const newTu = lock.initialTu * decayFactor
+        decayLockUpdates.push({
+          id: lock.id,
+          postId: lock.postId,
+          remainingBlocks,
+          currentTu: newTu
+        })
+      }
+    }
+
+    // Process batch updates in a single transaction
+    const operations = []
+
+    for (const lock of expiredLockUpdates) {
+      operations.push(
+        prisma.lock.update({
+          where: { id: lock.id },
+          data: {
+            expired: true,
+            remainingBlocks: 0,
+            currentTu: 0
+          }
+        })
+      )
+      // NOTE: do NOT decrement post.totalTu here — we recalculate from scratch below
+      // to prevent float drift and ensure accuracy after both expiry and decay updates
+    }
+
+    for (const lock of decayLockUpdates) {
+      operations.push(
+        prisma.lock.update({
+          where: { id: lock.id },
+          data: {
+            remainingBlocks: lock.remainingBlocks,
+            currentTu: lock.currentTu
+          }
+        })
+      )
+    }
+
+    if (operations.length > 0) {
+      await prisma.$transaction(operations)
+    }
+
+    // Recalculate totalTu from scratch for affected posts to prevent float drift
+    const affectedPostIds = new Set<string>([
+      ...expiredLockUpdates.map(l => l.postId),
+      ...decayLockUpdates.map(l => l.postId)
+    ])
+
+    for (const postId of Array.from(affectedPostIds)) {
+      const sumResult = await prisma.lock.aggregate({
+        where: { postId, expired: false },
+        _sum: { currentTu: true }
       })
-    } else {
-      const decayFactor = remainingBlocks / lock.durationBlocks
-      const newTu = lock.initialTu * decayFactor
-      decayLockUpdates.push({
-        id: lock.id,
-        remainingBlocks,
-        currentTu: newTu
+      const newTotalTu = Math.max(0, sumResult._sum.currentTu ?? 0)
+      await prisma.post.update({
+        where: { id: postId },
+        data: { totalTu: newTotalTu }
       })
     }
-  }
 
-  // Process all updates in a single transaction
-  const operations = []
+    totalLockCount += activeLocks.length
+    totalExpiredCount += expiredLockUpdates.length
 
-  // Batch expire locks
-  for (const lock of expiredLockUpdates) {
-    operations.push(
-      prisma.lock.update({
-        where: { id: lock.id },
-        data: {
-          expired: true,
-          remainingBlocks: 0,
-          currentTu: 0
-        }
-      })
-    )
-    operations.push(
-      prisma.post.update({
-        where: { id: lock.postId },
-        data: {
-          totalTu: { decrement: lock.currentTu }
-        }
-      })
-    )
-  }
-
-  // Batch decay updates
-  for (const lock of decayLockUpdates) {
-    operations.push(
-      prisma.lock.update({
-        where: { id: lock.id },
-        data: {
-          remainingBlocks: lock.remainingBlocks,
-          currentTu: lock.currentTu
-        }
-      })
-    )
-  }
-
-  // Execute all in one atomic transaction
-  if (operations.length > 0) {
-    await prisma.$transaction(operations)
+    if (activeLocks.length < BATCH_SIZE) break
   }
 
   return {
     updated: true,
-    lockCount: activeLocks.length,
-    expiredCount: expiredLockUpdates.length
+    lockCount: totalLockCount,
+    expiredCount: totalExpiredCount
   }
 
   } finally {
-    clearInProgress('lockUpdate')
+    await clearInProgress('lockUpdate')
   }
 }
 
