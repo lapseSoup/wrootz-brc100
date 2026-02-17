@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/app/lib/db'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/app/lib/rate-limit'
 
 export async function GET(request: NextRequest) {
+  const rateLimit = await checkRateLimit(request, RATE_LIMITS.api)
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit.resetIn)
+
   const searchParams = request.nextUrl.searchParams
-  const query = searchParams.get('q')?.toLowerCase() || ''
+  const rawQuery = searchParams.get('q') || ''
+
+  // L11: Max length validation to prevent abuse
+  if (rawQuery.length > 200) {
+    return NextResponse.json({ error: 'Query too long (max 200 characters)' }, { status: 400 })
+  }
+
+  const query = rawQuery.toLowerCase()
 
   if (query.length < 1) {
     return NextResponse.json([])
@@ -23,6 +34,7 @@ export async function GET(request: NextRequest) {
       initialTu: true,
       expired: true,
     },
+    take: 20,
   })
 
   // Aggregate wrootz by tag (use currentTu for active, initialTu for expired)
