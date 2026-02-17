@@ -38,14 +38,6 @@ export function satsToBsv(sats: number): number {
   return sats / SATS_PER_BSV
 }
 
-/**
- * @deprecated Use calculateWrootzFromSats() instead to avoid float imprecision.
- * wrootz calculation: wrootz = (amount_in_satoshis × duration_blocks) / NORMALIZATION_FACTOR
- */
-export function calculateWrootz(amountBSV: number, durationBlocks: number): number {
-  const amountInSatoshis = amountBSV * SATS_PER_BSV
-  return (amountInSatoshis * durationBlocks) / NORMALIZATION_FACTOR
-}
 
 // Calculate wrootz from sats directly
 export function calculateWrootzFromSats(amountSats: number, durationBlocks: number): number {

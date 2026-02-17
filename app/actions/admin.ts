@@ -7,6 +7,10 @@ import { getCurrentBlockHeight } from '@/app/lib/blockchain'
 import { headers } from 'next/headers'
 
 // Check if current user is admin
+// TOCTOU WARNING: This check is not atomic with subsequent operations.
+// Callers performing mutations must re-verify admin status inside a
+// prisma.$transaction to prevent privilege escalation if admin is
+// revoked between the check and the operation.
 async function requireAdmin() {
   const session = await getSession()
   if (!session) {
@@ -22,6 +26,14 @@ async function requireAdmin() {
   }
 
   return { isAdmin: true, userId: session.userId }
+}
+
+// Re-verify admin inside a transaction to close the TOCTOU window
+async function verifyAdminInTx(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], userId: string) {
+  const user = await tx.user.findUnique({ where: { id: userId } })
+  if (!user?.isAdmin) {
+    throw new Error('Admin privileges revoked')
+  }
 }
 
 // Log admin action for audit trail
@@ -49,11 +61,13 @@ async function logAdminAction(
   })
 }
 
+function disabledAction(name: string) {
+  return { error: `${name} is disabled on mainnet.` }
+}
+
 // NOTE: grantBSV is disabled for mainnet - users get real BSV from their wallet
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function grantBSV(_formData: FormData) {
-  return { error: 'Granting BSV is disabled on mainnet. Users must fund their wallets with real BSV.' }
-}
+export async function grantBSV(_formData: FormData) { return disabledAction('Granting BSV') }
 
 // Delete a post (admin only)
 export async function deletePost(formData: FormData) {
@@ -85,7 +99,18 @@ export async function deletePost(formData: FormData) {
     }
   }
 
-  await prisma.post.delete({ where: { id: postId } })
+  // Atomic: re-verify admin + delete in same transaction to prevent TOCTOU race
+  try {
+    await prisma.$transaction(async (tx) => {
+      await verifyAdminInTx(tx, adminCheck.userId!)
+      await tx.post.delete({ where: { id: postId } })
+    })
+  } catch (e) {
+    if (e instanceof Error && e.message === 'Admin privileges revoked') {
+      return { error: 'Not authorized' }
+    }
+    throw e
+  }
 
   // Log admin action
   await logAdminAction(
@@ -129,10 +154,21 @@ export async function setAdminStatus(formData: FormData) {
     return { error: 'User not found' }
   }
 
-  await prisma.user.update({
-    where: { id: targetUser.id },
-    data: { isAdmin }
-  })
+  // Atomic: re-verify admin + update in same transaction to prevent TOCTOU race
+  try {
+    await prisma.$transaction(async (tx) => {
+      await verifyAdminInTx(tx, adminCheck.userId!)
+      await tx.user.update({
+        where: { id: targetUser.id },
+        data: { isAdmin }
+      })
+    })
+  } catch (e) {
+    if (e instanceof Error && e.message === 'Admin privileges revoked') {
+      return { error: 'Not authorized' }
+    }
+    throw e
+  }
 
   // Log admin action
   await logAdminAction(
@@ -153,15 +189,11 @@ export async function setAdminStatus(formData: FormData) {
 
 // NOTE: resetUserBalance is disabled for mainnet
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function resetUserBalance(_formData: FormData) {
-  return { error: 'Resetting balance is disabled on mainnet. User balances come from their connected wallets.' }
-}
+export async function resetUserBalance(_formData: FormData) { return disabledAction('Resetting balance') }
 
 // NOTE: advanceBlocks is disabled for mainnet - blocks are real
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function advanceBlocks(_formData: FormData) {
-  return { error: 'Block manipulation is disabled on mainnet. Blocks advance automatically on the BSV blockchain.' }
-}
+export async function advanceBlocks(_formData: FormData) { return disabledAction('Block manipulation') }
 
 // Get all users for admin
 export async function getAllUsers() {
@@ -261,9 +293,7 @@ export async function getBlockInfo() {
 
 // NOTE: setBlockHeight is disabled for mainnet
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function setBlockHeight(_formData: FormData) {
-  return { error: 'Block height manipulation is disabled on mainnet. The blockchain determines block height.' }
-}
+export async function setBlockHeight(_formData: FormData) { return disabledAction('Block height manipulation') }
 
 // Get all locks for admin
 export async function getAllLocks() {
@@ -322,29 +352,38 @@ export async function deleteLock(formData: FormData) {
 
   // On mainnet, we can't refund - just delete the record
   // The on-chain lock remains until the timelock expires
-  await prisma.$transaction([
-    prisma.lock.delete({ where: { id: lockId } }),
-    prisma.transaction.create({
-      data: {
-        action: 'Admin',
-        amount: lock.amount,
-        txid: lock.txid,
-        description: `Admin deleted lock record (on-chain lock unaffected)`,
-        userId: lock.userId,
-        postId: lock.postId
-      }
-    })
-  ])
+  // Atomic: re-verify admin inside transaction to prevent TOCTOU race
+  try {
+    await prisma.$transaction(async (tx) => {
+      await verifyAdminInTx(tx, adminCheck.userId!)
+      await tx.lock.delete({ where: { id: lockId } })
+      await tx.transaction.create({
+        data: {
+          action: 'Admin',
+          amount: lock.amount,
+          txid: lock.txid,
+          description: `Admin deleted lock record (on-chain lock unaffected)`,
+          userId: lock.userId,
+          postId: lock.postId
+        }
+      })
 
-  // Update post totalTu
-  const remainingLocks = await prisma.lock.findMany({
-    where: { postId: lock.postId, expired: false }
-  })
-  const totalTu = remainingLocks.reduce((sum, l) => sum + l.currentTu, 0)
-  await prisma.post.update({
-    where: { id: lock.postId },
-    data: { totalTu }
-  })
+      // Recalculate totalTu inside the transaction to prevent race conditions
+      const remainingLocks = await tx.lock.findMany({
+        where: { postId: lock.postId, expired: false }
+      })
+      const totalTu = remainingLocks.reduce((sum, l) => sum + l.currentTu, 0)
+      await tx.post.update({
+        where: { id: lock.postId },
+        data: { totalTu }
+      })
+    })
+  } catch (e) {
+    if (e instanceof Error && e.message === 'Admin privileges revoked') {
+      return { error: 'Not authorized' }
+    }
+    throw e
+  }
 
   // Log admin action
   await logAdminAction(
