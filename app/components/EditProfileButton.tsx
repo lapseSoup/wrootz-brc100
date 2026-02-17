@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { updateBio, updateAvatar } from '@/app/actions/profile'
 
 interface EditProfileButtonProps {
@@ -20,6 +20,16 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const MAX_BIO_LENGTH = 160
+
+  // Reset form state from current props when modal reopens to clear stale errors/state
+  useEffect(() => {
+    if (isOpen) {
+      setBio(currentBio)
+      setError('')
+      setLoading(false)
+      setUploading(false)
+    }
+  }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -45,6 +55,10 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
     const reader = new FileReader()
     reader.onload = (event) => {
       setAvatarPreview(event.target?.result as string)
+    }
+    reader.onerror = () => {
+      setError('Failed to read file')
+      setPendingFile(null)
     }
     reader.readAsDataURL(file)
   }
