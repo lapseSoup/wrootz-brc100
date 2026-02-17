@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual, createHash } from 'crypto'
 import { forceUpdateLockStatuses } from '@/app/lib/lock-updater'
 
 // For Vercel Cron
@@ -40,7 +41,9 @@ export async function GET(request: NextRequest) {
     const authHeader = request.headers.get('authorization')
     const providedSecret = authHeader?.replace('Bearer ', '')
 
-    if (providedSecret !== cronSecret) {
+    const hashA = createHash('sha256').update(providedSecret ?? '').digest()
+    const hashB = createHash('sha256').update(cronSecret).digest()
+    if (!timingSafeEqual(hashA, hashB)) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
