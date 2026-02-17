@@ -9,6 +9,7 @@ interface WalletContextValue extends WalletState {
   connect: (type?: WalletType) => Promise<string>
   disconnect: () => Promise<void>
   refreshBalance: () => Promise<void>
+  clearError: () => void
 
   // Wallet info
   availableWallets: { type: WalletType; name: string; installed: boolean; description?: string }[]
@@ -34,6 +35,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
   const [currentWallet, setCurrentWallet] = useState<WalletProviderInterface | null>(null)
   const [availableWallets, setAvailableWallets] = useState<{ type: WalletType; name: string; installed: boolean; description?: string }[]>([])
   const autoConnectAttempted = useRef(false)
+  const listenerCleanup = useRef<(() => void)[]>([])
 
   const connect = useCallback(async (type?: WalletType): Promise<string> => {
     const walletType = type || detectPreferredWallet()
@@ -69,8 +71,12 @@ export function WalletProvider({ children }: WalletProviderProps) {
       // Save preference
       localStorage.setItem('walletType', walletType)
 
-      // Set up event listeners
-      adapter.onAccountChange(async (newAddress) => {
+      // Clean up previous listeners before registering new ones
+      listenerCleanup.current.forEach(fn => fn())
+      listenerCleanup.current = []
+
+      // Set up event listeners and store unsubscribe functions
+      const unsubAccount = adapter.onAccountChange(async (newAddress) => {
         const newBalance = await adapter.getBalance()
         setState(prev => ({
           ...prev,
@@ -79,7 +85,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
         }))
       })
 
-      adapter.onDisconnect(() => {
+      const unsubDisconnect = adapter.onDisconnect(() => {
         setState({
           type: 'none',
           address: null,
@@ -91,6 +97,9 @@ export function WalletProvider({ children }: WalletProviderProps) {
         setCurrentWallet(null)
         localStorage.removeItem('walletType')
       })
+
+      if (unsubAccount) listenerCleanup.current.push(unsubAccount)
+      if (unsubDisconnect) listenerCleanup.current.push(unsubDisconnect)
 
       setState({
         type: walletType,
@@ -177,11 +186,24 @@ export function WalletProvider({ children }: WalletProviderProps) {
     return () => clearInterval(interval)
   }, [state.isConnected])
 
+  // Clean up all wallet event listeners on unmount
+  useEffect(() => {
+    return () => {
+      listenerCleanup.current.forEach(fn => fn())
+      listenerCleanup.current = []
+    }
+  }, [])
+
+  const clearError = useCallback(() => {
+    setState(prev => ({ ...prev, error: null }))
+  }, [])
+
   const value: WalletContextValue = {
     ...state,
     connect,
     disconnect,
     refreshBalance,
+    clearError,
     availableWallets,
     currentWallet
   }
