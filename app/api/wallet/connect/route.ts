@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { saveWalletConnection, clearWalletSession, getWalletConnectionInfo } from '@/app/lib/wallet-session'
 import { getSession } from '@/app/lib/session'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/app/lib/rate-limit'
+import prisma from '@/app/lib/db'
 
 /**
  * Save wallet connection (POST)
@@ -51,6 +52,15 @@ export async function POST(request: NextRequest) {
       walletType,
       sessionToken,
       identityKey,
+    })
+
+    // Persist wallet address to user record for payment routing
+    await prisma.user.update({
+      where: { id: session.userId },
+      data: {
+        walletAddress: identityKey,
+        walletType: walletType as string,
+      }
     })
 
     return NextResponse.json({ success: true })
