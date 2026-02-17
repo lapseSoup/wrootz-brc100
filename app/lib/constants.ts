@@ -54,6 +54,7 @@ export function calculateWrootzFromSats(amountSats: number, durationBlocks: numb
 
 // Calculate current wrootz based on remaining blocks
 export function calculateCurrentWrootz(initialWrootz: number, durationBlocks: number, remainingBlocks: number): number {
+  if (durationBlocks <= 0) return 0
   if (remainingBlocks <= 0) return 0
   return initialWrootz * (remainingBlocks / durationBlocks)
 }

@@ -140,6 +140,7 @@ export async function updateLockStatusesIfNeeded(): Promise<{
           currentTu: lock.currentTu
         })
       } else {
+        if (lock.durationBlocks <= 0) continue // skip malformed locks
         const decayFactor = remainingBlocks / lock.durationBlocks
         const newTu = lock.initialTu * decayFactor
         decayLockUpdates.push({

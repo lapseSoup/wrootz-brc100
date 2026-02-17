@@ -10,6 +10,7 @@ export function calculateWrootzAtBlock(lock: Lock, block: number): number {
   }
 
   const blocksElapsed = block - lock.startBlock
+  if (lock.durationBlocks <= 0) return 0
   const blocksRemaining = Math.max(0, lock.durationBlocks - blocksElapsed)
 
   if (blocksRemaining <= 0) {
