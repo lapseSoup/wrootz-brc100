@@ -9,12 +9,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { saveWalletConnection, clearWalletSession, getWalletConnectionInfo } from '@/app/lib/wallet-session'
 import { getSession } from '@/app/lib/session'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/app/lib/rate-limit'
 
 /**
  * Save wallet connection (POST)
  * Called after wallet authentication to store session token securely
  */
 export async function POST(request: NextRequest) {
+  // Rate limit wallet connection attempts
+  const rateLimit = await checkRateLimit(request, RATE_LIMITS.auth)
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit.resetIn)
+
   // Require user authentication
   const session = await getSession()
   if (!session) {
@@ -70,6 +75,11 @@ export async function DELETE() {
  * Returns whether a wallet is connected and basic info
  */
 export async function GET() {
+  const session = await getSession()
+  if (!session) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
   try {
     const info = await getWalletConnectionInfo()
     return NextResponse.json(info)
