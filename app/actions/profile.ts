@@ -3,6 +3,7 @@
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { revalidatePath } from 'next/cache'
+import { checkStrictRateLimit } from '@/app/lib/server-action-rate-limit'
 
 const MAX_BIO_LENGTH = 160
 
@@ -10,6 +11,11 @@ export async function updateBio(bio: string) {
   const session = await getSession()
   if (!session) {
     return { error: 'You must be logged in' }
+  }
+
+  const rateLimit = await checkStrictRateLimit('updateProfile')
+  if (!rateLimit.success) {
+    return { error: `Too many attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
   }
 
   if (bio.length > MAX_BIO_LENGTH) {
@@ -33,9 +39,14 @@ export async function updateAvatar(avatarUrl: string | null) {
     return { error: 'You must be logged in' }
   }
 
-  // Basic URL validation if provided (allow http/https URLs and local /avatars/ paths)
-  if (avatarUrl && !avatarUrl.startsWith('http') && !avatarUrl.startsWith('/avatars/')) {
-    return { error: 'Invalid avatar URL' }
+  const rateLimit = await checkStrictRateLimit('updateProfile')
+  if (!rateLimit.success) {
+    return { error: `Too many attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
+  }
+
+  // Only allow local avatar paths uploaded via our upload endpoint
+  if (avatarUrl && !avatarUrl.startsWith('/avatars/')) {
+    return { error: 'Invalid avatar URL. Only uploaded avatars are allowed.' }
   }
 
   const user = await prisma.user.update({

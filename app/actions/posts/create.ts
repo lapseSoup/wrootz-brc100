@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation'
 import { notifyFollowersOfNewPost, notifyReplyCreated } from '../notifications'
 import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
 import { verifyInscription } from '@/app/lib/blockchain-verify'
+import { checkStrictRateLimit } from '@/app/lib/server-action-rate-limit'
 import crypto from 'crypto'
 
 /**
@@ -17,6 +18,11 @@ export async function createPost(formData: FormData) {
   const session = await getSession()
   if (!session) {
     return { error: 'You must be logged in to create a post' }
+  }
+
+  const rateLimit = await checkStrictRateLimit('createPost')
+  if (!rateLimit.success) {
+    return { error: `Too many attempts. Please try again in ${rateLimit.resetInSeconds} seconds.` }
   }
 
   const title = formData.get('title') as string
@@ -44,6 +50,33 @@ export async function createPost(formData: FormData) {
 
   if (title && title.length > 200) {
     return { error: 'Title must be 200 characters or less' }
+  }
+
+  // Validate URLs if provided
+  if (imageUrl) {
+    try {
+      new URL(imageUrl)
+    } catch {
+      return { error: 'Invalid image URL' }
+    }
+    if (imageUrl.length > 2048) {
+      return { error: 'Image URL too long (max 2048 characters)' }
+    }
+  }
+  if (videoUrl) {
+    try {
+      new URL(videoUrl)
+    } catch {
+      return { error: 'Invalid video URL' }
+    }
+    if (videoUrl.length > 2048) {
+      return { error: 'Video URL too long (max 2048 characters)' }
+    }
+    // Only allow YouTube URLs (must match CSP frame-src allowlist)
+    const youtubePattern = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|m\.youtube\.com)\//
+    if (!youtubePattern.test(videoUrl)) {
+      return { error: 'Only YouTube video URLs are supported' }
+    }
   }
 
   // Require inscription for mainnet posts
