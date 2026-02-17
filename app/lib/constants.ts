@@ -1,8 +1,8 @@
 // Simulation constants
+export const BLOCKS_PER_HOUR = 6
+export const BLOCKS_PER_DAY = 144
 export const BLOCK_INTERVAL_SECONDS = 600 // 10 minute blocks (like real Bitcoin)
-export const NORMALIZATION_FACTOR = 52560 // 365 days * 144 blocks/day (Bitcoin standard)
-export const STARTING_BALANCE = 1.0 // BSV for new users
-export const STARTING_BALANCE_SATS = 100_000_000 // 1 BSV in sats
+export const NORMALIZATION_FACTOR = 52560 // 365 days * BLOCKS_PER_DAY blocks/day (Bitcoin standard)
 export const MAX_POST_LENGTH = 5000 // Character limit for posts
 export const SATS_PER_BSV = 100_000_000
 export const MAX_LOCK_DURATION_BLOCKS = 52560 // 1 year max (365 days * 144 blocks/day)
@@ -11,6 +11,11 @@ export const DEFAULT_LOCK_AMOUNT_SATS = 10000 // Default lock amount in sats
 // Griefing protection: minimum lock amount to prevent spam locks
 // Set to 1000 sats (0.00001 BSV) as a reasonable minimum
 export const MIN_LOCK_AMOUNT_SATS = 1000
+
+// Maximum lock amount to prevent integer overflow in TU calculation
+// 100 BSV = 10,000,000,000 sats. MAX_SAFE_INTEGER / MAX_LOCK_DURATION_BLOCKS ≈ 171B sats,
+// so 10B sats gives comfortable headroom.
+export const MAX_LOCK_AMOUNT_SATS = 10_000_000_000 // 100 BSV
 
 // For posts listed for sale, minimum lock must be at least this percentage
 // of the sale price to prevent "griefing" by locking 1 sat for long periods

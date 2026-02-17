@@ -2,7 +2,7 @@
 
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
-import { MAX_LOCK_DURATION_BLOCKS, MIN_LOCK_AMOUNT_SATS, MIN_LOCK_PERCENTAGE_FOR_SALE, SATS_PER_BSV, calculateWrootz } from '@/app/lib/constants'
+import { MAX_LOCK_DURATION_BLOCKS, MIN_LOCK_AMOUNT_SATS, MAX_LOCK_AMOUNT_SATS, MIN_LOCK_PERCENTAGE_FOR_SALE, SATS_PER_BSV, calculateWrootzFromSats } from '@/app/lib/constants'
 import { revalidatePath } from 'next/cache'
 import { notifyLockOnPost, notifyTagFollowers } from '../notifications'
 import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
@@ -56,6 +56,10 @@ export async function recordLock(params: {
   // Griefing protection: enforce minimum lock amount
   if (satoshis < MIN_LOCK_AMOUNT_SATS) {
     return { error: `Minimum lock amount is ${MIN_LOCK_AMOUNT_SATS.toLocaleString()} sats` }
+  }
+
+  if (satoshis > MAX_LOCK_AMOUNT_SATS) {
+    return { error: `Maximum lock amount is ${(MAX_LOCK_AMOUNT_SATS / SATS_PER_BSV).toLocaleString()} BSV` }
   }
 
   if (durationBlocks < 1 || durationBlocks > MAX_LOCK_DURATION_BLOCKS) {
@@ -132,8 +136,8 @@ export async function recordLock(params: {
     const verifiedSatoshis = verification.onChainAmount ?? satoshis
     const verifiedAmount = verifiedSatoshis / SATS_PER_BSV
 
-    // Calculate initial wrootz using verified values
-    const initialTu = calculateWrootz(verifiedAmount, durationBlocks)
+    // Calculate initial wrootz using verified satoshi values (integer math, no float imprecision)
+    const initialTu = calculateWrootzFromSats(verifiedSatoshis, durationBlocks)
 
     // Create lock record using verified on-chain data
     await prisma.$transaction([
