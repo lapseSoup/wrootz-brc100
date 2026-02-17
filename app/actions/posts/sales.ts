@@ -63,8 +63,9 @@ export async function listForSale(formData: FormData) {
 
   // Owner can set any locker share percentage when listing for sale
   // Lockers who locked before the sale was listed accepted this risk
-  await prisma.post.update({
-    where: { id: postId },
+  // Use updateMany with ownership + state in WHERE to prevent TOCTOU race conditions
+  const updated = await prisma.post.updateMany({
+    where: { id: postId, ownerId: session.userId, forSale: false },
     data: {
       forSale: true,
       salePrice,
@@ -72,6 +73,10 @@ export async function listForSale(formData: FormData) {
       listedAt: new Date() // Track when listed for lock comparison
     }
   })
+
+  if (updated.count === 0) {
+    return { error: 'Post not found, not owned by you, or already listed for sale' }
+  }
 
   // Record transaction
   await prisma.transaction.create({
@@ -134,8 +139,9 @@ export async function cancelSale(formData: FormData) {
     return { error: 'Cannot cancel sale while there are locks added after listing' }
   }
 
-  await prisma.post.update({
-    where: { id: postId },
+  // Use updateMany with ownership + state in WHERE to prevent TOCTOU race conditions
+  const cancelUpdated = await prisma.post.updateMany({
+    where: { id: postId, ownerId: session.userId, forSale: true },
     data: {
       forSale: false,
       salePrice: 0,
@@ -143,6 +149,10 @@ export async function cancelSale(formData: FormData) {
       listedAt: null // Clear the listing timestamp
     }
   })
+
+  if (cancelUpdated.count === 0) {
+    return { error: 'Post not found, not owned by you, or not currently for sale' }
+  }
 
   revalidatePath(`/post/${postId}`)
   revalidatePath('/')
