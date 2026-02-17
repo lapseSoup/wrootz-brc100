@@ -135,15 +135,25 @@ export function createRateLimiter(limit: number, window: Duration, prefix: strin
 
 /**
  * Extract client IP from request headers.
- * IMPORTANT: These headers are trusted as-is. In production, ensure the
- * application is behind a trusted reverse proxy (e.g., Cloudflare, Vercel)
- * that sets these headers correctly. Without a trusted proxy, clients can
- * spoof these headers to bypass rate limiting.
+ *
+ * In production we only trust `cf-connecting-ip`, which Cloudflare sets and
+ * clients cannot forge when traffic is routed through Cloudflare's network.
+ * `x-real-ip` and `x-forwarded-for` are client-controlled in a serverless
+ * deployment without a fixed reverse proxy, so we ignore them in production
+ * to prevent IP spoofing that would let an attacker bypass rate limits.
+ *
+ * In development all three headers are accepted so local testing (e.g. with
+ * curl or tools that set x-forwarded-for) continues to work.
  */
 export function extractClientIP(headers: {
   cfConnectingIp?: string | null
   realIp?: string | null
   forwardedFor?: string | null
 }): string {
+  if (process.env.NODE_ENV === 'production') {
+    // Only trust the header that Cloudflare sets — cannot be spoofed by clients
+    return headers.cfConnectingIp || 'unknown'
+  }
+  // Development: accept any of the common proxy headers for convenience
   return headers.cfConnectingIp || headers.realIp || headers.forwardedFor?.split(',')[0]?.trim() || 'unknown'
 }

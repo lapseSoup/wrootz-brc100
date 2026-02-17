@@ -249,6 +249,8 @@ export async function getPostsByTag(tags: string | string[], limit: number = 50)
       return {
         ...post,
         totalTu: actualTotalTu, // Override with calculated value
+        // Serialize Date to ISO string so it is compatible with PostBasic.createdAt: string
+        createdAt: post.createdAt.toISOString(),
         tagWrootz, // combined wrootz for the specified tag(s)
         replyCount: post.incomingLinks.length,
         replyTo: post.outgoingLinks[0]?.targetPost || null

@@ -146,7 +146,9 @@ export async function withIdempotency<T>(
  * Falls back to in-memory Set for single-process development.
  */
 const inProgressKeys = new Set<string>()
-const IN_PROGRESS_TTL_SECONDS = 120 // Auto-expire locks after 2 minutes
+// 5-minute TTL: batch processing up to 2,000 locks iterates many DB operations;
+// the TTL must exceed the expected worst-case duration to prevent concurrent overlap.
+const IN_PROGRESS_TTL_SECONDS = 300 // Auto-expire locks after 5 minutes
 
 export async function markInProgress(key: string): Promise<boolean> {
   if (redis) {

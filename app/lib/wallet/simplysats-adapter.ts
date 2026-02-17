@@ -47,30 +47,27 @@ export class SimplySatsAdapter implements WalletProvider {
   private reconnectPromise: Promise<string> | null = null
 
   constructor() {
-    // Check for stored identity key (public, not sensitive)
-    // Session token is now stored in httpOnly cookie via /api/wallet/connect
+    // The identity key is no longer cached in localStorage to reduce the XSS
+    // attack surface. Connection state is restored via loadSessionToken() which
+    // checks the server-side httpOnly wallet session.
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('simplysats_identity_key')
-      if (stored) {
-        this.identityKey = stored
-        // Session token will be fetched from server when needed
-        this._isConnected = true
-        // Fetch session token from server on init
-        this.loadSessionToken()
-      }
+      this.loadSessionToken()
     }
   }
 
   /**
-   * Load session token from secure server-side storage
+   * Load session state from the server-side httpOnly wallet session.
+   * The identity key is sourced from the server rather than localStorage
+   * to avoid XSS exposure.
    */
   private async loadSessionToken(): Promise<void> {
     try {
       const response = await fetch('/api/wallet/connect')
       if (response.ok) {
         const data = await response.json()
-        if (data.connected && data.identityKey === this.identityKey) {
-          // Token is stored server-side, we just verify connection
+        if (data.connected && data.identityKey) {
+          // Restore identity key from the server session
+          this.identityKey = data.identityKey
           this._isConnected = true
         }
       }
@@ -287,11 +284,12 @@ export class SimplySatsAdapter implements WalletProvider {
         console.debug('Session token acquired and stored securely')
       }
 
-      // Store the connection state
+      // Store the connection state in memory only.
+      // The identity key is persisted server-side in the httpOnly wallet session
+      // (via saveSessionToken above). Keeping it out of localStorage reduces
+      // the XSS attack surface for identity correlation.
       this._isConnected = true
       this.identityKey = publicKey
-      // Only store identity key locally (it's a public key, not sensitive)
-      localStorage.setItem('simplysats_identity_key', publicKey)
 
       console.debug('Connected to Simply Sats, identity key:', publicKey.slice(0, 16) + '...')
       return publicKey
@@ -319,7 +317,6 @@ export class SimplySatsAdapter implements WalletProvider {
     this.identityKey = null
     this.sessionToken = null
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('simplysats_identity_key')
       // Clear secure session via API
       try {
         await fetch('/api/wallet/connect', { method: 'DELETE' })

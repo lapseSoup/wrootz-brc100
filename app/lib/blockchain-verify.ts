@@ -223,7 +223,9 @@ export function parseWrootzOpReturn(scriptHex: string): { action: string; data: 
         pos += 2
       } else if (pushOp === 0x4d) {
         const lenHex = scriptHex.substring(pos, pos + 4)
-        dataLen = parseInt(lenHex.match(/.{2}/g)!.reverse().join(''), 16)
+        const lenBytes = lenHex.match(/.{2}/g)
+        if (!lenBytes) throw new Error('Invalid hex string: ' + lenHex)
+        dataLen = parseInt(lenBytes.reverse().join(''), 16)
         pos += 4
       } else {
         break
@@ -293,7 +295,9 @@ export async function verifyLock(
 
     // Verify amount
     result.onChainAmount = lockOutput.value
-    const LOCK_AMOUNT_TOLERANCE = 100 // Allow up to 100 sats difference (consistent with payment verification)
+    // Allow up to 0.5% or 100 sats (whichever is larger) to handle fee rounding.
+    // Percentage-based tolerance prevents systematic underpayment on small locks.
+    const LOCK_AMOUNT_TOLERANCE = Math.max(100, Math.round(expectedSatoshis * 0.005))
     result.amountMatches = Math.abs(lockOutput.value - expectedSatoshis) <= LOCK_AMOUNT_TOLERANCE
     if (result.amountMatches && lockOutput.value !== expectedSatoshis) {
       console.warn(`Lock amount tolerance match: expected ${expectedSatoshis}, got ${lockOutput.value} (diff: ${Math.abs(lockOutput.value - expectedSatoshis)} sats)`)

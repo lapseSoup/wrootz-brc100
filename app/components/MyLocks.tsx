@@ -5,6 +5,7 @@ import { useWallet } from './WalletProvider'
 import { formatSats, blocksToTimeString } from '@/app/lib/constants'
 import type { LockedOutput } from '@/app/lib/wallet/types'
 import { getErrorDetails } from '@/app/lib/wallet/errors'
+import { useMountedRef } from '@/app/hooks/useMountedRef'
 
 export default function MyLocks() {
   const { isConnected, currentWallet, connect, refreshBalance } = useWallet()
@@ -15,6 +16,8 @@ export default function MyLocks() {
   const [errorAction, setErrorAction] = useState<string | undefined>()
   const [success, setSuccess] = useState<string | null>(null)
   const [currentBlock, setCurrentBlock] = useState<number>(0)
+
+  const mountedRef = useMountedRef()
 
   const loadLocks = useCallback(async () => {
     if (!currentWallet || !isConnected) return
@@ -60,18 +63,20 @@ export default function MyLocks() {
 
     try {
       const result = await currentWallet.unlockBSV(outpoint)
+      if (!mountedRef.current) return
       setSuccess(`Successfully unlocked! Transaction: ${result.txid.slice(0, 8)}...${result.txid.slice(-8)}`)
       // Immediately refresh balance after successful unlock
       refreshBalance()
       // Refresh the locks list
       await loadLocks()
     } catch (err) {
+      if (!mountedRef.current) return
       console.error('Unlock failed:', err)
       const errorDetails = getErrorDetails(err)
       setError(errorDetails.message)
       setErrorAction(errorDetails.action)
     } finally {
-      setUnlocking(null)
+      if (mountedRef.current) setUnlocking(null)
     }
   }
 

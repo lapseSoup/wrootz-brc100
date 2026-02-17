@@ -37,6 +37,9 @@ export {
   getPlatformStats,
   getRecentActivity,
   getRisingPosts,
+  getTopTagsCached,
+  getTopLockersCached,
+  getRecentActivityCached,
 
   // Post links (replies, backlinks)
   getReplies,

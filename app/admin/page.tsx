@@ -71,6 +71,7 @@ export default function AdminPage() {
   const [currentBlock, setCurrentBlock] = useState(1)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(false)
 
   // Form states
@@ -85,16 +86,23 @@ export default function AdminPage() {
     setIsAdmin(adminCheck.isAdmin)
 
     if (adminCheck.isAdmin) {
-      const [usersResult, postsResult, locksResult, blockInfo] = await Promise.all([
-        getAllUsers(),
-        getAllPosts(),
-        getAllLocks(),
-        getBlockInfo()
-      ])
-      if (usersResult.users) setUsers(usersResult.users)
-      if (postsResult.posts) setPosts(postsResult.posts)
-      if (locksResult.locks) setLocks(locksResult.locks)
-      setCurrentBlock(blockInfo.currentBlock)
+      try {
+        const [usersResult, postsResult, locksResult, blockInfo] = await Promise.all([
+          getAllUsers(),
+          getAllPosts(),
+          getAllLocks(),
+          getBlockInfo()
+        ])
+        // Only update state when ALL four promises resolved successfully
+        if (usersResult.users) setUsers(usersResult.users)
+        if (postsResult.posts) setPosts(postsResult.posts)
+        if (locksResult.locks) setLocks(locksResult.locks)
+        setCurrentBlock(blockInfo.currentBlock)
+        setLoadError('')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load dashboard data'
+        setLoadError(message)
+      }
     }
   }
 
@@ -156,6 +164,11 @@ export default function AdminPage() {
       {error && (
         <div className="p-4 bg-[var(--danger)] text-white rounded-lg">
           {error}
+        </div>
+      )}
+      {loadError && (
+        <div className="p-4 bg-[var(--danger)] text-white rounded-lg">
+          Failed to load dashboard data: {loadError}
         </div>
       )}
 

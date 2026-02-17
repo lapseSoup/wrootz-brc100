@@ -124,10 +124,10 @@ export class BRC100WalletAdapter implements WalletProvider {
         this._isConnected = true
         this.connectedSubstrate = substrate.type
         if (typeof window !== 'undefined') {
-          // L9: Identity keys are public keys (not secrets). The risk is identity
-          // correlation under XSS, not fund theft. Moving to httpOnly cookies would
-          // require architectural changes beyond current scope.
-          localStorage.setItem('brc100_identity_key', publicKey)
+          // Only persist the substrate selection, not the identity key.
+          // The identity key is stored server-side in the httpOnly wallet session
+          // (via saveWalletConnection). Keeping it out of localStorage reduces
+          // the XSS attack surface for identity correlation.
           localStorage.setItem('brc100_substrate', substrate.type)
         }
 
@@ -169,7 +169,6 @@ export class BRC100WalletAdapter implements WalletProvider {
     this._isConnected = false
     this.connectedSubstrate = null
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('brc100_identity_key')
       localStorage.removeItem('brc100_substrate')
     }
     this.disconnectCallbacks.forEach(cb => cb())
@@ -180,13 +179,9 @@ export class BRC100WalletAdapter implements WalletProvider {
 
   async getAddress(): Promise<string> {
     // In BRC-100, we use the identity public key as the "address"
-    // The actual receiving addresses are derived per-transaction using BRC-29
-    const stored = typeof window !== 'undefined'
-      ? localStorage.getItem('brc100_identity_key')
-      : null
-
-    if (stored) return stored
-
+    // The actual receiving addresses are derived per-transaction using BRC-29.
+    // The key is not cached in localStorage (XSS risk); fetch it from the
+    // live wallet client instead.
     if (!this.walletClient) {
       throw new Error('Wallet not connected')
     }

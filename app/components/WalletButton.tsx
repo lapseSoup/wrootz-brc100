@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useWallet } from './WalletProvider'
 
 export default function WalletButton() {
@@ -19,6 +19,29 @@ export default function WalletButton() {
   const [showWalletSelect, setShowWalletSelect] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const walletSelectRef = useRef<HTMLDivElement>(null)
+
+  // Move focus to the first interactive item when the connected dropdown opens
+  useEffect(() => {
+    if (showDropdown && dropdownRef.current) {
+      const firstItem = dropdownRef.current.querySelector<HTMLElement>(
+        'button, a, [role="menuitem"]'
+      )
+      firstItem?.focus()
+    }
+  }, [showDropdown])
+
+  // Move focus to the first interactive item when the wallet-select dropdown opens
+  useEffect(() => {
+    if (showWalletSelect && walletSelectRef.current) {
+      const firstItem = walletSelectRef.current.querySelector<HTMLElement>(
+        'button, a, [role="menuitem"]'
+      )
+      firstItem?.focus()
+    }
+  }, [showWalletSelect])
 
   const handleConnect = async (walletType: 'brc100' | 'simplysats') => {
     // L8: Clear both local and global wallet errors before retrying
@@ -42,12 +65,28 @@ export default function WalletButton() {
     }
   }
 
+  // Close dropdown when focus leaves the container entirely
+  const handleDropdownBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setShowDropdown(false)
+    }
+  }
+
+  // Close wallet-select dropdown when focus leaves the container entirely
+  const handleWalletSelectBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setShowWalletSelect(false)
+    }
+  }
+
   // Connected state - show connected status
   if (isConnected && address) {
     return (
-      <div className="relative">
+      <div className="relative" onBlur={handleDropdownBlur}>
         <button
           onClick={() => setShowDropdown(!showDropdown)}
+          aria-haspopup="menu"
+          aria-expanded={showDropdown}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--surface-2)] hover:bg-[var(--surface-3)] transition-colors"
         >
           {/* Connected indicator */}
@@ -66,7 +105,11 @@ export default function WalletButton() {
         {showDropdown && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-            <div className="absolute right-0 mt-2 w-72 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-lg z-50 py-2">
+            <div
+              ref={dropdownRef}
+              role="menu"
+              className="absolute right-0 mt-2 w-72 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-lg z-50 py-2"
+            >
               {/* Wallet Type Badge */}
               <div className="px-4 py-2 border-b border-[var(--border)]">
                 <div className="flex items-center gap-2">
@@ -85,6 +128,7 @@ export default function WalletButton() {
 
               {/* Copy Identity Key */}
               <button
+                role="menuitem"
                 onClick={handleCopyIdentityKey}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center gap-2"
               >
@@ -96,6 +140,7 @@ export default function WalletButton() {
 
               {/* Disconnect */}
               <button
+                role="menuitem"
                 onClick={() => {
                   disconnect()
                   setShowDropdown(false)
@@ -127,9 +172,11 @@ export default function WalletButton() {
   // Disconnected state - show connect button
   return (
     <>
-      <div className="relative">
+      <div className="relative" onBlur={handleWalletSelectBlur}>
         <button
           onClick={() => setShowWalletSelect(!showWalletSelect)}
+          aria-haspopup="menu"
+          aria-expanded={showWalletSelect}
           className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -142,7 +189,11 @@ export default function WalletButton() {
         {showWalletSelect && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowWalletSelect(false)} />
-            <div className="absolute right-0 mt-2 w-80 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-lg z-50 py-2">
+            <div
+              ref={walletSelectRef}
+              role="menu"
+              className="absolute right-0 mt-2 w-80 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg shadow-lg z-50 py-2"
+            >
               <p className="px-4 py-2 text-sm font-semibold border-b border-[var(--border)]">
                 Connect Wallet
               </p>
@@ -150,6 +201,7 @@ export default function WalletButton() {
               {availableWallets.map((wallet) => (
                 <button
                   key={wallet.type}
+                  role="menuitem"
                   onClick={() => wallet.installed && handleConnect(wallet.type as 'brc100' | 'simplysats')}
                   disabled={!wallet.installed}
                   className={`w-full px-4 py-3 text-left hover:bg-[var(--surface-2)] transition-colors flex items-center gap-3 ${

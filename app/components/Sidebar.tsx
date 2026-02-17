@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { formatWrootz } from '@/app/lib/constants'
-import { getTopTags, getTopLockers, getRecentActivity, getTrendingTags } from '@/app/actions/posts'
+import { getTopTagsCached, getTopLockersCached, getRecentActivityCached, getTrendingTags } from '@/app/actions/posts'
 import { getSession } from '@/app/lib/session'
 import { getFollowedTags } from '@/app/actions/follow'
 import TrendingTagsList from './TrendingTagsList'
@@ -16,11 +16,11 @@ export default async function Sidebar({ filter = 'all' }: SidebarProps) {
   const showTrending = filter === 'rising'
 
   const [topTags, trendingTags, topLockers, followedTags, recentActivity] = await Promise.all([
-    showTrending ? Promise.resolve([]) : getTopTags(5),
+    showTrending ? Promise.resolve([]) : getTopTagsCached(5),
     showTrending ? getTrendingTags(5) : Promise.resolve([]),
-    getTopLockers(5),
+    getTopLockersCached(5),
     session ? getFollowedTags() : Promise.resolve([]),
-    getRecentActivity(5)
+    getRecentActivityCached(5)
   ])
 
   // Use trending tags for Rising tab, top tags for everything else
@@ -67,7 +67,7 @@ export default async function Sidebar({ filter = 'all' }: SidebarProps) {
             </span>
           </div>
           <div className="space-y-1">
-            {recentActivity.map((activity, index) => (
+            {recentActivity.map((activity: { postId: string; username: string; postTitle: string; wrootz: number; tag: string | null }, index: number) => (
               <Link
                 key={`${activity.postId}-${activity.username}-${activity.tag || 'none'}-${index}`}
                 href={`/post/${activity.postId}`}
@@ -97,7 +97,7 @@ export default async function Sidebar({ filter = 'all' }: SidebarProps) {
             <h3 className="section-title text-sm">Top Lockers</h3>
           </div>
           <div className="space-y-1">
-            {topLockers.map(({ username, wrootz }, index) => (
+            {topLockers.map(({ username, wrootz }: { username: string; wrootz: number }, index: number) => (
               <Link
                 key={username}
                 href={`/profile/${username}`}

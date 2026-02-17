@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, ReactNode } from 'react'
 import type { WalletType, WalletState, WalletProvider as WalletProviderInterface } from '@/app/lib/wallet'
 import { getWalletAdapter, getAvailableWallets, detectPreferredWallet } from '@/app/lib/wallet'
 
@@ -9,19 +9,22 @@ interface ConnectResult {
   wallet: WalletProviderInterface
 }
 
-interface WalletContextValue extends WalletState {
-  // Actions
-  connect: (type?: WalletType) => Promise<ConnectResult>
-  disconnect: () => Promise<void>
-  refreshBalance: () => Promise<void>
-  clearError: () => void
-
-  // Wallet info
+// State context — reactive values that change (balance, connection status, etc.)
+interface WalletStateContextValue extends WalletState {
   availableWallets: { type: WalletType; name: string; installed: boolean; description?: string }[]
   currentWallet: WalletProviderInterface | null
 }
 
-const WalletContext = createContext<WalletContextValue | null>(null)
+// Actions context — stable callbacks that rarely change
+interface WalletActionsContextValue {
+  connect: (type?: WalletType) => Promise<ConnectResult>
+  disconnect: () => Promise<void>
+  refreshBalance: () => Promise<void>
+  clearError: () => void
+}
+
+const WalletStateContext = createContext<WalletStateContextValue | null>(null)
+const WalletActionsContext = createContext<WalletActionsContextValue | null>(null)
 
 interface WalletProviderProps {
   children: ReactNode
@@ -76,35 +79,42 @@ export function WalletProvider({ children }: WalletProviderProps) {
       // Save preference
       localStorage.setItem('walletType', walletType)
 
-      // Clean up previous listeners before registering new ones
-      listenerCleanup.current.forEach(fn => fn())
-      listenerCleanup.current = []
-
-      // Set up event listeners and store unsubscribe functions
-      const unsubAccount = adapter.onAccountChange(async (newAddress) => {
-        const newBalance = await adapter.getBalance()
-        setState(prev => ({
-          ...prev,
-          address: newAddress,
-          balance: newBalance
-        }))
-      })
-
-      const unsubDisconnect = adapter.onDisconnect(() => {
-        setState({
-          type: 'none',
-          address: null,
-          balance: null,
-          isConnected: false,
-          isConnecting: false,
-          error: null
+      // Set up new event listeners into a local array first so that if either
+      // setup throws the old cleanups are still intact and no listeners leak.
+      const newCleanups: (() => void)[] = []
+      try {
+        const unsubAccount = adapter.onAccountChange(async (newAddress) => {
+          const newBalance = await adapter.getBalance()
+          setState(prev => ({
+            ...prev,
+            address: newAddress,
+            balance: newBalance
+          }))
         })
-        setCurrentWallet(null)
-        localStorage.removeItem('walletType')
-      })
+        if (unsubAccount) newCleanups.push(unsubAccount)
 
-      if (unsubAccount) listenerCleanup.current.push(unsubAccount)
-      if (unsubDisconnect) listenerCleanup.current.push(unsubDisconnect)
+        const unsubDisconnect = adapter.onDisconnect(() => {
+          setState({
+            type: 'none',
+            address: null,
+            balance: null,
+            isConnected: false,
+            isConnecting: false,
+            error: null
+          })
+          setCurrentWallet(null)
+          localStorage.removeItem('walletType')
+        })
+        if (unsubDisconnect) newCleanups.push(unsubDisconnect)
+      } catch (listenerErr) {
+        // Clean up any partially registered new listeners before re-throwing
+        newCleanups.forEach(fn => fn())
+        throw listenerErr
+      }
+
+      // Both listeners registered successfully — now swap out the old ones
+      listenerCleanup.current.forEach(fn => fn())
+      listenerCleanup.current = newCleanups
 
       setState({
         type: walletType,
@@ -133,11 +143,12 @@ export function WalletProvider({ children }: WalletProviderProps) {
     // Check immediately
     setAvailableWallets(getAvailableWallets())
 
-    // Auto-reconnect if we have a saved wallet preference
+    // Auto-reconnect if we have a saved wallet preference.
+    // The identity key is no longer read from localStorage; each adapter
+    // restores it from the server-side httpOnly wallet session on init.
     const savedType = localStorage.getItem('walletType') as WalletType | null
-    const savedAddress = localStorage.getItem('brc100_identity_key')
 
-    if (savedType && savedType !== 'none' && savedAddress && !autoConnectAttempted.current) {
+    if (savedType && savedType !== 'none' && !autoConnectAttempted.current) {
       autoConnectAttempted.current = true
 
       // Auto-connect silently in the background
@@ -203,27 +214,52 @@ export function WalletProvider({ children }: WalletProviderProps) {
     setState(prev => ({ ...prev, error: null }))
   }, [])
 
-  const value: WalletContextValue = {
+  const stateValue: WalletStateContextValue = {
     ...state,
-    connect,
-    disconnect,
-    refreshBalance,
-    clearError,
     availableWallets,
     currentWallet
   }
 
+  // Actions are memoized so consumers of WalletActionsContext don't re-render
+  // when balance/connection state changes — only when the callbacks themselves change.
+  const actionsValue = useMemo<WalletActionsContextValue>(() => ({
+    connect,
+    disconnect,
+    refreshBalance,
+    clearError
+  }), [connect, disconnect, refreshBalance, clearError])
+
   return (
-    <WalletContext.Provider value={value}>
-      {children}
-    </WalletContext.Provider>
+    <WalletStateContext.Provider value={stateValue}>
+      <WalletActionsContext.Provider value={actionsValue}>
+        {children}
+      </WalletActionsContext.Provider>
+    </WalletStateContext.Provider>
   )
 }
 
+/**
+ * Returns combined state + actions. Use for components that need both.
+ * Backwards-compatible with the original useWallet() hook.
+ */
 export function useWallet() {
-  const context = useContext(WalletContext)
-  if (!context) {
+  const stateCtx = useContext(WalletStateContext)
+  const actionsCtx = useContext(WalletActionsContext)
+  if (!stateCtx || !actionsCtx) {
     throw new Error('useWallet must be used within a WalletProvider')
   }
-  return context
+  return { ...stateCtx, ...actionsCtx }
+}
+
+/**
+ * Returns only the stable action callbacks (connect, disconnect, refreshBalance, clearError).
+ * Components that only call wallet actions won't re-render when balance or connection
+ * state changes — only when the callbacks themselves change.
+ */
+export function useWalletActions() {
+  const ctx = useContext(WalletActionsContext)
+  if (!ctx) {
+    throw new Error('useWalletActions must be used within a WalletProvider')
+  }
+  return ctx
 }

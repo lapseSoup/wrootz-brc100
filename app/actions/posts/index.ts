@@ -22,6 +22,13 @@ export {
   getRisingPosts
 } from './queries'
 
+// Cached sidebar queries (no 'use server' — unstable_cache const exports)
+export {
+  getTopTagsCached,
+  getTopLockersCached,
+  getRecentActivityCached
+} from './queries-cached'
+
 // Post links (replies, backlinks)
 export { getReplies, getReplyParent, getBacklinks } from './links'
 

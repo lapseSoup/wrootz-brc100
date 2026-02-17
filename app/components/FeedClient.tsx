@@ -37,18 +37,22 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
   // Update displayed posts when new data arrives
   useEffect(() => {
     if (posts.length > 0) {
-      // Check if top post changed before updating
-      const newTopId = posts[0]?.id
-      if (currentTopIdRef.current && newTopId !== currentTopIdRef.current) {
-        setHasNewPosts(true)
-      }
-      // Update the ref with new top ID
-      currentTopIdRef.current = newTopId ?? null
+      const newPostIds = posts.map(p => p.id).join(',')
 
-      // Only update state if post data actually changed (avoid re-renders on SWR polls)
-      const newPostIds = posts.map(p => `${p.id}:${p.totalTu}`).join(',')
       if (newPostIds !== prevPostIdsRef.current) {
+        // The set of posts (by ID) has changed — check if a new post appeared at the top
+        const newTopId = posts[0]?.id
+        if (currentTopIdRef.current && newTopId !== currentTopIdRef.current) {
+          setHasNewPosts(true)
+        }
+        // Update the tracked top ID and replace the displayed list
+        currentTopIdRef.current = newTopId ?? null
         prevPostIdsRef.current = newPostIds
+        setDisplayedPosts(posts)
+      } else {
+        // Same post IDs — only totalTu (or other fields) changed.
+        // Update displayed posts so values stay fresh but do NOT trigger
+        // the "new posts" banner since the post set is unchanged.
         setDisplayedPosts(posts)
       }
     }

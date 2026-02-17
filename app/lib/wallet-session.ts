@@ -4,17 +4,15 @@
  * Stores wallet session tokens in httpOnly cookies (not localStorage)
  * to protect against XSS attacks.
  *
- * TODO (L14): Consider additional session hardening:
- * - Forced re-auth after sensitive operations (lock, send, inscribe)
- * - Sliding window expiry that extends on activity but caps at an absolute max
- * - connectedAt is tracked but not currently used for TTL enforcement
+ * Session TTL: cookie maxAge is 2 hours; an absolute max of 24 hours
+ * is enforced via connectedAt in getValidWalletSession().
  */
 'use server'
 
 import { getIronSession, IronSession } from 'iron-session'
 import { cookies } from 'next/headers'
 
-interface WalletSessionData {
+export interface WalletSessionData {
   walletType?: 'simplysats' | 'brc100'
   sessionToken?: string
   identityKey?: string
@@ -42,7 +40,7 @@ const WALLET_SESSION_OPTIONS = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax' as const,
-    maxAge: 60 * 60 * 8, // 8 hours
+    maxAge: 60 * 60 * 2, // 2 hours
     path: '/',
   },
 }
@@ -53,6 +51,37 @@ const WALLET_SESSION_OPTIONS = {
 export async function getWalletSession(): Promise<IronSession<WalletSessionData>> {
   const cookieStore = await cookies()
   return getIronSession<WalletSessionData>(cookieStore, WALLET_SESSION_OPTIONS)
+}
+
+/** Absolute maximum session lifetime: 24 hours from initial connection */
+const SESSION_ABSOLUTE_MAX_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Get the wallet session with connectedAt TTL enforcement.
+ *
+ * Returns null (and destroys the session) when:
+ * - The session has no connectedAt timestamp, or
+ * - More than 24 hours have elapsed since connectedAt (absolute max TTL).
+ *
+ * Use this in preference to getWalletSession() whenever the session must
+ * be trusted for security-sensitive operations.
+ */
+export async function getValidWalletSession(): Promise<IronSession<WalletSessionData> | null> {
+  const session = await getWalletSession()
+
+  if (!session.connectedAt) {
+    // No connectedAt recorded — treat as invalid
+    session.destroy()
+    return null
+  }
+
+  if (Date.now() - session.connectedAt > SESSION_ABSOLUTE_MAX_MS) {
+    // Session has exceeded the 24-hour absolute maximum
+    session.destroy()
+    return null
+  }
+
+  return session
 }
 
 /**
@@ -88,7 +117,10 @@ export async function getWalletIdentityKey(): Promise<string | null> {
 }
 
 /**
- * Get full wallet connection info
+ * Get full wallet connection info.
+ *
+ * Returns { connected: false } when the session is absent, invalid, or has
+ * exceeded the 24-hour absolute TTL enforced by getValidWalletSession().
  */
 export async function getWalletConnectionInfo(): Promise<{
   connected: boolean
@@ -96,8 +128,8 @@ export async function getWalletConnectionInfo(): Promise<{
   identityKey?: string
   connectedAt?: number
 }> {
-  const session = await getWalletSession()
-  if (!session.sessionToken || !session.identityKey) {
+  const session = await getValidWalletSession()
+  if (!session || !session.sessionToken || !session.identityKey) {
     return { connected: false }
   }
   return {

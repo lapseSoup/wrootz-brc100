@@ -5,22 +5,7 @@ import { formatWrootz, formatSats, bsvToSats, formatRelativeTime } from '@/app/l
 import CopyLinkButton from './CopyLinkButton'
 import HidePostButton from './HidePostButton'
 import type { PostBasic, TagWrootz } from '@/app/lib/types'
-
-// Extract YouTube video ID from URL
-function getYouTubeVideoId(url: string): string | null {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtube\.com\/watch\?.+&v=)([^&]+)/,
-    /youtu\.be\/([^?&]+)/,
-    /youtube\.com\/embed\/([^?&]+)/,
-    /m\.youtube\.com\/watch\?v=([^&]+)/,
-    /youtube\.com\/shorts\/([^?&]+)/,
-  ]
-  for (const pattern of patterns) {
-    const match = url.match(pattern)
-    if (match && match[1]) return match[1]
-  }
-  return null
-}
+import { getYouTubeVideoId } from '@/app/lib/utils/youtube'
 
 interface PostCardProps {
   post: PostBasic

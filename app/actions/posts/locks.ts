@@ -3,7 +3,7 @@
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { MAX_LOCK_DURATION_BLOCKS, MIN_LOCK_AMOUNT_SATS, MAX_LOCK_AMOUNT_SATS, MIN_LOCK_PERCENTAGE_FOR_SALE, SATS_PER_BSV, calculateWrootzFromSats } from '@/app/lib/constants'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { notifyLockOnPost, notifyTagFollowers } from '../notifications'
 import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
 import { verifyLock, getCurrentBlockHeight } from '@/app/lib/blockchain-verify'
@@ -211,6 +211,8 @@ export async function recordLock(params: {
 
   revalidatePath(`/post/${postId}`)
   revalidatePath('/')
+  // Invalidate sidebar caches so top tags, top lockers, and recent activity reflect the new lock
+  revalidateTag('locks')
 
   return idempotencyResult.result
 }

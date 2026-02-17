@@ -275,7 +275,7 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
                   placeholder="Blocks"
                 />
                 <span className="text-[10px] text-[var(--foreground-muted)] whitespace-nowrap">
-                  {parseInt(customBlocks) > 0 ? blocksToTimeString(parseInt(customBlocks)) : '~10min/block'}
+                  {(parseInt(customBlocks) || 0) > 0 ? blocksToTimeString(parseInt(customBlocks) || 0) : '~10min/block'}
                 </span>
               </div>
             )}

@@ -25,6 +25,9 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
   useEffect(() => {
     if (isOpen) {
       setBio(currentBio)
+      setAvatarUrl(currentAvatarUrl)
+      setAvatarPreview(currentAvatarUrl)
+      setPendingFile(null)
       setError('')
       setLoading(false)
       setUploading(false)

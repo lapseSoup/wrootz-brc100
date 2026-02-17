@@ -85,7 +85,15 @@ export async function createPost(formData: FormData) {
   }
 
   // S2: Verify inscription exists on-chain and is a valid ordinal
-  const inscriptionCheck = await verifyInscription(inscriptionTxid)
+  // Retry up to 3 times with exponential backoff to handle transient WhatsOnChain timeouts
+  let inscriptionCheck = await verifyInscription(inscriptionTxid)
+  if (!inscriptionCheck.txExists) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, attempt * 1500))
+      inscriptionCheck = await verifyInscription(inscriptionTxid)
+      if (inscriptionCheck.txExists) break
+    }
+  }
   if (!inscriptionCheck.txExists) {
     return { error: 'Inscription transaction not found on blockchain. Please wait a moment and try again.' }
   }

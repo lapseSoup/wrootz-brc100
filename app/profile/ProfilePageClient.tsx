@@ -5,6 +5,7 @@ import { formatSats, bsvToSats, formatWrootz, blocksToTimeString } from '@/app/l
 import Link from 'next/link'
 import { logout } from '@/app/actions/auth'
 import MyLocks from '@/app/components/MyLocks'
+import { useMountedRef } from '@/app/hooks/useMountedRef'
 
 interface User {
   id: string
@@ -71,12 +72,15 @@ export default function ProfilePageClient({
   const [activeLocks, setActiveLocks] = useState(initialActiveLocks)
   const [transactions, setTransactions] = useState(initialTransactions)
 
+  const mountedRef = useMountedRef()
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/profile', { cache: 'no-store' })
       if (!res.ok) return
 
       const data = await res.json()
+      if (!mountedRef.current) return
       setUser(data.user)
       setOwnedPosts(data.ownedPosts)
       setActiveLocks(data.activeLocks)
@@ -84,7 +88,7 @@ export default function ProfilePageClient({
     } catch (err) {
       console.error('Failed to fetch profile updates:', err)
     }
-  }, [])
+  }, [mountedRef])
 
   // Poll for updates every 5 seconds
   useEffect(() => {

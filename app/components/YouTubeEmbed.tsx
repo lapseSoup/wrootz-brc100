@@ -1,33 +1,10 @@
 'use client'
 
+import { getYouTubeVideoId } from '@/app/lib/utils/youtube'
+
 interface YouTubeEmbedProps {
   url: string
   title?: string
-}
-
-// Extract YouTube video ID from various URL formats
-function getYouTubeVideoId(url: string): string | null {
-  const patterns = [
-    // Standard watch URLs: youtube.com/watch?v=VIDEO_ID
-    /(?:youtube\.com\/watch\?v=|youtube\.com\/watch\?.+&v=)([^&]+)/,
-    // Short URLs: youtu.be/VIDEO_ID
-    /youtu\.be\/([^?&]+)/,
-    // Embed URLs: youtube.com/embed/VIDEO_ID
-    /youtube\.com\/embed\/([^?&]+)/,
-    // Mobile URLs: m.youtube.com/watch?v=VIDEO_ID
-    /m\.youtube\.com\/watch\?v=([^&]+)/,
-    // YouTube Shorts: youtube.com/shorts/VIDEO_ID
-    /youtube\.com\/shorts\/([^?&]+)/,
-  ]
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern)
-    if (match && match[1]) {
-      return match[1]
-    }
-  }
-
-  return null
 }
 
 // Check if a URL is a valid YouTube URL

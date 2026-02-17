@@ -1,6 +1,7 @@
 'use server'
 
 import { Prisma } from '@prisma/client'
+import { unstable_cache } from 'next/cache'
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { updateLockStatusesIfNeeded } from '@/app/lib/lock-updater'
@@ -88,22 +89,41 @@ export async function getPostsWithTU(options?: {
 
   // Filter by type
   if (options?.filter === 'rising') {
-    // Special handling for rising - we need to get posts sorted by recent wrootz gains
-    const risingPosts = await getRisingPosts(options?.limit || 50)
-    if (risingPosts.length === 0) return { posts: [], nextCursor: null }
+    // Special handling for rising - posts sorted by recent wrootz gains.
+    // Fetch a large pool (up to 500) so we can paginate within the ordered list.
+    const PAGE_SIZE = options?.limit || 20
+    const RISING_POOL_SIZE = 500
+    const allRisingPosts = await getRisingPosts(RISING_POOL_SIZE)
+    if (allRisingPosts.length === 0) return { posts: [], nextCursor: null }
 
-    // Filter out hidden posts from rising
-    const risingPostIds = risingPosts
+    // Filter out hidden posts from rising, keeping the rising sort order
+    const allRisingIds = allRisingPosts
       .filter(p => !hiddenPostIds.includes(p.id))
       .map(p => p.id)
 
-    if (risingPostIds.length === 0) return { posts: [], nextCursor: null }
+    if (allRisingIds.length === 0) return { posts: [], nextCursor: null }
 
-    // Add search filter if present
+    // Apply cursor: find the position of the cursor ID and start after it
+    let startIndex = 0
+    if (options?.cursor) {
+      const cursorIndex = allRisingIds.indexOf(options.cursor)
+      if (cursorIndex !== -1) {
+        startIndex = cursorIndex + 1
+      }
+    }
+
+    // Slice the page (one extra to detect whether there are more results)
+    const pageIds = allRisingIds.slice(startIndex, startIndex + PAGE_SIZE + 1)
+    const hasMore = pageIds.length > PAGE_SIZE
+    const pageIdsForFetch = hasMore ? pageIds.slice(0, PAGE_SIZE) : pageIds
+
+    if (pageIdsForFetch.length === 0) return { posts: [], nextCursor: null }
+
+    // Build where clause for this page of IDs, applying any search filter
     const risingWhere = options?.search
       ? {
           AND: [
-            { id: { in: risingPostIds } },
+            { id: { in: pageIdsForFetch } },
             {
               OR: [
                 { title: { contains: options.search } },
@@ -113,7 +133,7 @@ export async function getPostsWithTU(options?: {
             }
           ]
         }
-      : { id: { in: risingPostIds } }
+      : { id: { in: pageIdsForFetch } }
 
     const posts = await prisma.post.findMany({
       where: risingWhere,
@@ -140,12 +160,17 @@ export async function getPostsWithTU(options?: {
       }
     })
 
-    // Sort by the rising order (most recent wrootz gains first)
+    // Re-sort by the rising order (most recent wrootz gains first)
     const postMap = new Map(posts.map(p => [p.id, p]))
-    const resultPosts = risingPostIds
+    const resultPosts = pageIdsForFetch
       .filter(id => postMap.has(id))
       .map(id => mapPost(postMap.get(id)!))
-    return { posts: resultPosts, nextCursor: null } // Rising doesn't support pagination yet
+
+    const nextCursor = hasMore && resultPosts.length > 0
+      ? resultPosts[resultPosts.length - 1].id
+      : null
+
+    return { posts: resultPosts, nextCursor }
   } else if (options?.filter === 'for-sale') {
     conditions.push({ forSale: true })
   } else if (options?.filter === 'discover') {
@@ -259,22 +284,42 @@ export async function getPostsWithTU(options?: {
   }
 }
 
-// L1: Post with Prisma relations (locks, incomingLinks, outgoingLinks)
-// Using any because the Prisma-generated type with dynamic includes is complex
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type PostWithRelations = any
+// Prisma-typed post with the relations used in getPostsWithTU and getRisingPosts queries
+type PostWithRelations = Prisma.PostGetPayload<{
+  include: {
+    creator: { select: { id: true; username: true } }
+    owner: { select: { id: true; username: true } }
+    locks: {
+      include: {
+        user: { select: { id: true; username: true } }
+      }
+    }
+    incomingLinks: {
+      select: { id: true }
+    }
+    outgoingLinks: {
+      include: {
+        targetPost: {
+          select: { id: true; title: true }
+        }
+      }
+    }
+  }
+}>
 
 /**
  * Helper function to map post data with computed fields
  */
 function mapPost(post: PostWithRelations) {
   // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
-  const actualTotalTu = (post.locks || []).reduce((sum: number, lock: { currentTu: number }) => sum + lock.currentTu, 0)
+  const actualTotalTu = post.locks.reduce((sum, lock) => sum + lock.currentTu, 0)
 
   return {
     ...post,
     // Override totalTu with the calculated value from active locks
     totalTu: actualTotalTu,
+    // Serialize Date to ISO string so it is compatible with PostBasic.createdAt: string
+    createdAt: post.createdAt.toISOString(),
     replyCount: (post.incomingLinks || []).length,
     replyTo: post.outgoingLinks?.[0]?.targetPost || null
   }
@@ -517,3 +562,33 @@ export async function getRisingPosts(limit: number = 5) {
     .sort((a, b) => b.recentWrootz - a.recentWrootz)
     .slice(0, limit)
 }
+
+/**
+ * Cached version of getTopTags for use in Sidebar.
+ * Revalidates every 5 minutes or when the 'locks' cache tag is invalidated.
+ */
+export const getTopTagsCached = unstable_cache(
+  async (limit: number = 5) => getTopTags(limit),
+  ['top-tags'],
+  { revalidate: 300, tags: ['locks', 'top-tags'] }
+)
+
+/**
+ * Cached version of getTopLockers for use in Sidebar.
+ * Revalidates every 5 minutes or when the 'locks' cache tag is invalidated.
+ */
+export const getTopLockersCached = unstable_cache(
+  async (limit: number = 5) => getTopLockers(limit),
+  ['top-lockers'],
+  { revalidate: 300, tags: ['locks', 'top-lockers'] }
+)
+
+/**
+ * Cached version of getRecentActivity for use in Sidebar.
+ * Revalidates every 5 minutes or when the 'locks' cache tag is invalidated.
+ */
+export const getRecentActivityCached = unstable_cache(
+  async (limit: number = 5) => getRecentActivity(limit),
+  ['recent-activity'],
+  { revalidate: 300, tags: ['locks', 'recent-activity'] }
+)

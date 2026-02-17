@@ -27,9 +27,15 @@ export function pushData(hexData: string): string {
   } else if (len <= 0xff) {
     return '4c' + len.toString(16).padStart(2, '0') + hexData
   } else if (len <= 0xffff) {
-    return '4d' + len.toString(16).padStart(4, '0').match(/.{2}/g)!.reverse().join('') + hexData
+    const lenHex4 = len.toString(16).padStart(4, '0')
+    const lenBytes4 = lenHex4.match(/.{2}/g)
+    if (!lenBytes4) throw new Error('Invalid hex string: ' + lenHex4)
+    return '4d' + lenBytes4.reverse().join('') + hexData
   } else {
-    return '4e' + len.toString(16).padStart(8, '0').match(/.{2}/g)!.reverse().join('') + hexData
+    const lenHex8 = len.toString(16).padStart(8, '0')
+    const lenBytes8 = lenHex8.match(/.{2}/g)
+    if (!lenBytes8) throw new Error('Invalid hex string: ' + lenHex8)
+    return '4e' + lenBytes8.reverse().join('') + hexData
   }
 }
 
