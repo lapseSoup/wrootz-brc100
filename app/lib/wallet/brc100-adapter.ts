@@ -12,7 +12,8 @@
  * - 'XDM' - Browser extensions (cross-document messaging)
  */
 
-import { WalletClient, Hash } from '@bsv/sdk'
+import { WalletClient } from '@bsv/sdk'
+import { withTimeout, pushData, hash160, createP2PKHLockingScript, buildInscriptionScript } from './wallet-utils'
 import type { WalletProvider, WalletBalance, SendResult, LockResult, InscriptionData, InscriptionResult, LockedOutput, UnlockResult } from './types'
 
 // Connection timeout in milliseconds
@@ -48,17 +49,7 @@ export class BRC100WalletAdapter implements WalletProvider {
     return this._isConnected
   }
 
-  /**
-   * Helper to wrap a promise with a timeout
-   */
-  private withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(message)), ms)
-      )
-    ])
-  }
+  // Delegate to shared wallet-utils for common operations
 
   /**
    * Ensure wallet is connected, reconnect if needed
@@ -67,7 +58,7 @@ export class BRC100WalletAdapter implements WalletProvider {
     if (this.walletClient && this._isConnected) {
       // Test if connection is still alive by making a simple call
       try {
-        await this.withTimeout(
+        await withTimeout(
           this.walletClient.isAuthenticated(),
           5000,
           'Connection check timed out'
@@ -81,7 +72,7 @@ export class BRC100WalletAdapter implements WalletProvider {
 
     // Need to reconnect
     if (this.connectedSubstrate) {
-      console.log(`Reconnecting to ${this.connectedSubstrate}...`)
+      console.debug(`Reconnecting to ${this.connectedSubstrate}...`)
       this.walletClient = new WalletClient(this.connectedSubstrate as 'XDM')
       await this.walletClient.connectToSubstrate()
       await this.walletClient.waitForAuthentication()
@@ -92,6 +83,10 @@ export class BRC100WalletAdapter implements WalletProvider {
   }
 
   async connect(): Promise<string> {
+    // L13: Clear callback arrays before (re)connect to prevent duplicate listeners
+    this.accountChangeCallbacks.length = 0
+    this.disconnectCallbacks.length = 0
+
     // Try HTTP substrate first (for Metanet Desktop on port 3321)
     // Then fall back to XDM (for browser extensions)
     const substrates = [
@@ -103,20 +98,20 @@ export class BRC100WalletAdapter implements WalletProvider {
 
     for (const substrate of substrates) {
       try {
-        console.log(`Trying to connect via ${substrate.name} (${substrate.type})...`)
+        console.debug(`Trying to connect via ${substrate.name} (${substrate.type})...`)
 
         // Create WalletClient with the substrate
         this.walletClient = new WalletClient(substrate.type as 'XDM')
 
         // Connect to the wallet with timeout
-        await this.withTimeout(
+        await withTimeout(
           this.walletClient.connectToSubstrate(),
           CONNECTION_TIMEOUT,
           `Connection to ${substrate.name} timed out. Make sure the wallet is running.`
         )
 
         // Wait for user to authenticate in their wallet with timeout
-        await this.withTimeout(
+        await withTimeout(
           this.walletClient.waitForAuthentication(),
           CONNECTION_TIMEOUT * 3, // Give more time for user to authenticate
           `Authentication timed out. Please approve the connection in your wallet.`
@@ -136,7 +131,7 @@ export class BRC100WalletAdapter implements WalletProvider {
           localStorage.setItem('brc100_substrate', substrate.type)
         }
 
-        console.log(`Connected via ${substrate.name}`)
+        console.debug(`Connected via ${substrate.name}`)
         return publicKey
       } catch (error) {
         console.warn(`Failed to connect via ${substrate.name}:`, error)
@@ -209,26 +204,21 @@ export class BRC100WalletAdapter implements WalletProvider {
       let totalSatoshis = 0
       let foundOutputs = false
 
-      for (const basket of basketsToTry) {
-        try {
-          const result = await client.listOutputs({
-            basket,
-            limit: 10000
-          })
-          const outputs = result.outputs || []
+      const basketResults = await Promise.allSettled(
+        basketsToTry.map(basket =>
+          client.listOutputs({ basket, limit: 10000 })
+            .then(result => ({ basket, outputs: result.outputs || [] }))
+        )
+      )
 
-          if (outputs.length > 0) {
-            const basketSats = outputs
-              .filter((o) => o.spendable !== false)
-              .reduce((sum: number, o) => sum + (o.satoshis || 0), 0)
-
-            console.log(`Found ${outputs.length} outputs in '${basket}' basket: ${basketSats} sats`)
-            totalSatoshis += basketSats
-            foundOutputs = true
-          }
-        } catch {
-          // Basket doesn't exist or error, try next
-          console.log(`Basket '${basket}' not available`)
+      for (const result of basketResults) {
+        if (result.status === 'fulfilled' && result.value.outputs.length > 0) {
+          const basketSats = result.value.outputs
+            .filter((o) => o.spendable !== false)
+            .reduce((sum: number, o) => sum + (o.satoshis || 0), 0)
+          console.debug(`Found ${result.value.outputs.length} outputs in '${result.value.basket}' basket: ${basketSats} sats`)
+          totalSatoshis += basketSats
+          foundOutputs = true
         }
       }
 
@@ -241,17 +231,17 @@ export class BRC100WalletAdapter implements WalletProvider {
         const lockedOutputs = locksResult.outputs || []
         if (lockedOutputs.length > 0) {
           const lockedSats = lockedOutputs.reduce((sum: number, o) => sum + (o.satoshis || 0), 0)
-          console.log(`Found ${lockedOutputs.length} locked outputs: ${lockedSats} sats (not included in balance)`)
+          console.debug(`Found ${lockedOutputs.length} locked outputs: ${lockedSats} sats (not included in balance)`)
         }
       } catch {
         // No locks basket
       }
 
       if (!foundOutputs) {
-        console.log('No outputs found in any basket')
+        console.debug('No outputs found in any basket')
       }
 
-      console.log(`Total spendable balance: ${totalSatoshis} sats`)
+      console.debug(`Total spendable balance: ${totalSatoshis} sats`)
 
       return {
         bsv: totalSatoshis / 100_000_000,
@@ -288,7 +278,7 @@ export class BRC100WalletAdapter implements WalletProvider {
     const result = await this.walletClient.createAction({
       description: 'Send BSV payment',
       outputs: [{
-        lockingScript: this.createP2PKHLockingScript(to),
+        lockingScript: createP2PKHLockingScript(to),
         satoshis,
         outputDescription: 'Payment output'
       }],
@@ -317,9 +307,9 @@ export class BRC100WalletAdapter implements WalletProvider {
       // Get user's public key for tracking
       const { publicKey } = await client.getPublicKey({ identityKey: true })
 
-      console.log(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
+      console.debug(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
       if (ordinalOrigin) {
-        console.log(`Linking to ordinal: ${ordinalOrigin}`)
+        console.debug(`Linking to ordinal: ${ordinalOrigin}`)
       }
 
       // Try to use the wallet's native lockBSV if available (e.g., OP_PUSH_TX)
@@ -328,7 +318,7 @@ export class BRC100WalletAdapter implements WalletProvider {
 
       try {
         // Attempt native lock via HTTP API (same pattern as Simply Sats)
-        const lockResponse = await this.withTimeout(
+        const lockResponse = await withTimeout(
           fetch(`http://localhost:3321/lockBSV`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -344,7 +334,7 @@ export class BRC100WalletAdapter implements WalletProvider {
 
         if (lockResponse.txid) {
           result = lockResponse
-          console.log('Used native wallet lockBSV')
+          console.debug('Used native wallet lockBSV')
         } else {
           throw new Error('No txid from native lock')
         }
@@ -376,7 +366,7 @@ export class BRC100WalletAdapter implements WalletProvider {
         }
       }
 
-      console.log('Lock created:', result.txid)
+      console.debug('Lock created:', result.txid)
 
       return {
         txid: result.txid,
@@ -446,7 +436,7 @@ export class BRC100WalletAdapter implements WalletProvider {
       // Sort by unlock block (soonest first)
       locks.sort((a, b) => a.unlockBlock - b.unlockBlock)
 
-      console.log(`Found ${locks.length} locked outputs, ${locks.filter(l => l.spendable).length} are unlockable`)
+      console.debug(`Found ${locks.length} locked outputs, ${locks.filter(l => l.spendable).length} are unlockable`)
 
       return locks
     } catch (error) {
@@ -477,12 +467,12 @@ export class BRC100WalletAdapter implements WalletProvider {
         throw new Error(`Lock is not yet spendable. ${lock.blocksRemaining} blocks remaining (unlocks at block ${lock.unlockBlock})`)
       }
 
-      console.log(`Unlocking ${lock.satoshis} sats from outpoint ${outpoint}`)
+      console.debug(`Unlocking ${lock.satoshis} sats from outpoint ${outpoint}`)
 
       // Create an action that spends the locked output back to the default basket
       // For CLTV, we need to provide the unlocking script length so wallet can estimate fees
       // The actual unlocking script will be created during signing
-      const result = await this.withTimeout(
+      const result = await withTimeout(
         client.createAction({
           description: `Wrootz: Unlock ${lock.satoshis} sats`,
           inputs: [{
@@ -509,7 +499,7 @@ export class BRC100WalletAdapter implements WalletProvider {
         throw new Error('Unlock transaction failed - no txid returned')
       }
 
-      console.log('Unlock successful:', result.txid)
+      console.debug('Unlock successful:', result.txid)
 
       return {
         txid: result.txid,
@@ -532,7 +522,7 @@ export class BRC100WalletAdapter implements WalletProvider {
   private async createP2PKHFromIdentity(): Promise<string> {
     const client = await this.ensureConnected()
     const { publicKey } = await client.getPublicKey({ identityKey: true })
-    const pubKeyHashHex = this.hash160(publicKey)
+    const pubKeyHashHex = hash160(publicKey)
     return '76a914' + pubKeyHashHex + '88ac'
   }
 
@@ -565,16 +555,16 @@ export class BRC100WalletAdapter implements WalletProvider {
       // Format: OP_FALSE OP_IF "ord" OP_1 <content-type> OP_0 <data> OP_ENDIF <p2pkh>
       const { publicKey } = await client.getPublicKey({ identityKey: true })
 
-      const inscriptionScript = this.buildInscriptionScript(
+      const inscriptionScript = buildInscriptionScript(
         data.base64Data,
         data.mimeType,
         publicKey,
         data.map
       )
 
-      console.log('Creating inscription with script length:', inscriptionScript.length)
+      console.debug('Creating inscription with script length:', inscriptionScript.length)
 
-      const result = await this.withTimeout(
+      const result = await withTimeout(
         client.createAction({
           description: `Wrootz: Create post "${data.map?.title || 'Post'}"`,
           outputs: [{
@@ -594,7 +584,7 @@ export class BRC100WalletAdapter implements WalletProvider {
         throw new Error('Inscription creation failed - no txid returned')
       }
 
-      console.log('Inscription created:', result.txid)
+      console.debug('Inscription created:', result.txid)
 
       return {
         txid: result.txid,
@@ -661,20 +651,6 @@ export class BRC100WalletAdapter implements WalletProvider {
   // Helper methods
 
   /**
-   * Create a P2PKH locking script from a BSV address
-   */
-  private createP2PKHLockingScript(address: string): string {
-    // Decode the address to get the public key hash
-    const decoded = this.decodeBase58Check(address)
-    const pubKeyHash = decoded.slice(1) // Remove version byte
-
-    // Build the locking script
-    // OP_DUP (0x76) OP_HASH160 (0xa9) <20 bytes push> (0x14) <pubkeyhash> OP_EQUALVERIFY (0x88) OP_CHECKSIG (0xac)
-    const pubKeyHashHex = Buffer.from(pubKeyHash).toString('hex')
-    return '76a914' + pubKeyHashHex + '88ac'
-  }
-
-  /**
    * Create an OP_RETURN script for Wrootz protocol data
    * Format: OP_RETURN OP_FALSE "wrootz" <action> <data>
    *
@@ -685,119 +661,13 @@ export class BRC100WalletAdapter implements WalletProvider {
     // OP_RETURN (0x6a) followed by OP_FALSE (0x00) to make it a "safe" output
     // Then push: "wrootz" <action> <data>
     let script = '6a00' // OP_RETURN OP_FALSE
-    script += this.pushData(Buffer.from('wrootz').toString('hex'))
-    script += this.pushData(Buffer.from(action).toString('hex'))
-    script += this.pushData(Buffer.from(data).toString('hex'))
+    script += pushData(Buffer.from('wrootz').toString('hex'))
+    script += pushData(Buffer.from(action).toString('hex'))
+    script += pushData(Buffer.from(data).toString('hex'))
     return script
   }
 
-  /**
-   * Build a 1Sat Ordinals inscription script
-   */
-  private buildInscriptionScript(
-    base64Data: string,
-    mimeType: string,
-    pubKeyHex: string,
-    map?: Record<string, string>
-  ): string {
-    // 1Sat Ordinals inscription format:
-    // OP_FALSE OP_IF "ord" OP_1 <content-type> OP_0 <data> OP_ENDIF <p2pkh>
-
-    const dataBytes = Buffer.from(base64Data, 'base64')
-    const mimeTypeBytes = Buffer.from(mimeType, 'utf8')
-
-    let script = '0063' // OP_FALSE OP_IF
-    script += this.pushData(Buffer.from('ord').toString('hex')) // "ord"
-    script += '51' // OP_1
-    script += this.pushData(mimeTypeBytes.toString('hex')) // content-type
-    script += '00' // OP_0
-    script += this.pushData(dataBytes.toString('hex')) // data
-
-    // Add optional MAP data if provided
-    if (map && Object.keys(map).length > 0) {
-      // MAP protocol: OP_RETURN "MAP" "SET" key value key value...
-      // For inscriptions, we add it inside the envelope
-      for (const [key, value] of Object.entries(map)) {
-        script += this.pushData(Buffer.from(key).toString('hex'))
-        script += this.pushData(Buffer.from(value).toString('hex'))
-      }
-    }
-
-    script += '68' // OP_ENDIF
-
-    // Add P2PKH for the recipient
-    // We need to hash the pubkey first
-    const pubKeyHashHex = this.hash160(pubKeyHex)
-    script += '76a914' + pubKeyHashHex + '88ac'
-
-    return script
-  }
-
-  /**
-   * Decode a base58check encoded string
-   */
-  private decodeBase58Check(str: string): Uint8Array {
-    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-
-    let num = BigInt(0)
-    for (const char of str) {
-      const index = ALPHABET.indexOf(char)
-      if (index === -1) throw new Error('Invalid base58 character')
-      num = num * BigInt(58) + BigInt(index)
-    }
-
-    // Convert to bytes (25 bytes for standard address)
-    const hex = num.toString(16).padStart(50, '0')
-    const bytes = new Uint8Array(25)
-    for (let i = 0; i < 25; i++) {
-      bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-    }
-
-    // H1: Verify checksum - hash256(payload)[0:4] must match last 4 bytes
-    const payload = bytes.slice(0, 21)
-    const checksum = bytes.slice(21, 25)
-    const hash = Hash.hash256(Array.from(payload))
-    for (let i = 0; i < 4; i++) {
-      if (hash[i] !== checksum[i]) {
-        throw new Error('Invalid Base58Check checksum - address may be corrupted')
-      }
-    }
-
-    return payload // Return version byte + 20 byte hash
-  }
-
-  /**
-   * Create a push data opcode
-   */
-  private pushData(hexData: string): string {
-    const len = hexData.length / 2
-    if (len < 0x4c) {
-      return len.toString(16).padStart(2, '0') + hexData
-    } else if (len <= 0xff) {
-      return '4c' + len.toString(16).padStart(2, '0') + hexData
-    } else if (len <= 0xffff) {
-      return '4d' + len.toString(16).padStart(4, '0').match(/.{2}/g)!.reverse().join('') + hexData
-    } else {
-      return '4e' + len.toString(16).padStart(8, '0').match(/.{2}/g)!.reverse().join('') + hexData
-    }
-  }
-
-  /**
-   * HASH160 (RIPEMD160(SHA256(data)))
-   */
-  private hash160(hexData: string): string {
-    // Convert hex to bytes
-    const bytes: number[] = []
-    for (let i = 0; i < hexData.length; i += 2) {
-      bytes.push(parseInt(hexData.slice(i, i + 2), 16))
-    }
-
-    // Use @bsv/sdk Hash.hash160
-    const hash = Hash.hash160(bytes)
-
-    // Convert back to hex
-    return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('')
-  }
+  // Private crypto methods extracted to wallet-utils.ts
 }
 
 export const brc100Wallet = new BRC100WalletAdapter()

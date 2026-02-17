@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { formatWrootz, formatSats, bsvToSats, blocksToTimeString } from '@/app/lib/constants'
+import { formatWrootz, formatSats, bsvToSats, blocksToTimeString, BLOCKS_PER_HOUR, BLOCKS_PER_DAY } from '@/app/lib/constants'
 import type { Lock } from '@/app/lib/types'
 
 interface SidebarLocksProps {
@@ -16,8 +16,8 @@ function CompactLockItem({ lock, totalTu }: { lock: Lock; totalTu: number }) {
 
   // Calculate decay rates
   const decayRatePerBlock = lock.initialTu / lock.durationBlocks
-  const decayRatePerHour = decayRatePerBlock * 6
-  const decayRatePerDay = decayRatePerBlock * 144
+  const decayRatePerHour = decayRatePerBlock * BLOCKS_PER_HOUR
+  const decayRatePerDay = decayRatePerBlock * BLOCKS_PER_DAY
   const percentRemaining = lock.initialTu > 0 ? (lock.currentTu / lock.initialTu) * 100 : 0
 
   return (

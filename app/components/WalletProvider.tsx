@@ -4,9 +4,14 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, Re
 import type { WalletType, WalletState, WalletProvider as WalletProviderInterface } from '@/app/lib/wallet'
 import { getWalletAdapter, getAvailableWallets, detectPreferredWallet } from '@/app/lib/wallet'
 
+interface ConnectResult {
+  address: string
+  wallet: WalletProviderInterface
+}
+
 interface WalletContextValue extends WalletState {
   // Actions
-  connect: (type?: WalletType) => Promise<string>
+  connect: (type?: WalletType) => Promise<ConnectResult>
   disconnect: () => Promise<void>
   refreshBalance: () => Promise<void>
   clearError: () => void
@@ -37,7 +42,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
   const autoConnectAttempted = useRef(false)
   const listenerCleanup = useRef<(() => void)[]>([])
 
-  const connect = useCallback(async (type?: WalletType): Promise<string> => {
+  const connect = useCallback(async (type?: WalletType): Promise<ConnectResult> => {
     const walletType = type || detectPreferredWallet()
     const adapter = getWalletAdapter(walletType)
 
@@ -111,7 +116,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
       })
 
       setCurrentWallet(adapter)
-      return address
+      return { address, wallet: adapter }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to connect wallet'
       setState(prev => ({

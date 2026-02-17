@@ -6,7 +6,9 @@ import { recordLock } from '@/app/actions/posts'
 import { LOCK_DURATION_PRESETS, MAX_LOCK_DURATION_BLOCKS, formatSats, blocksToTimeString, formatWrootz, calculateWrootzFromSats } from '@/app/lib/constants'
 import TagInput from './TagInput'
 import SatsInput from './SatsInput'
+import Spinner from './Spinner'
 import { useWallet } from './WalletProvider'
+import { useMountedRef } from '@/app/hooks/useMountedRef'
 import { getErrorDetails } from '@/app/lib/wallet/errors'
 
 interface LockFormProps {
@@ -17,6 +19,8 @@ interface LockFormProps {
 export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
   const router = useRouter()
   const { isConnected, balance, currentWallet, connect, refreshBalance } = useWallet()
+
+  const mountedRef = useMountedRef()
 
   const userBalanceSats = balance?.satoshis ?? 0
   const [amountSats, setAmountSats] = useState('')
@@ -35,9 +39,11 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
     setErrorAction(undefined)
 
     // Check wallet connection
-    if (!isConnected || !currentWallet) {
+    let wallet = currentWallet
+    if (!isConnected || !wallet) {
       try {
-        await connect()
+        const result = await connect()
+        wallet = result.wallet
       } catch {
         setError('Please connect your wallet first')
         return
@@ -51,7 +57,7 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
     }
 
     const blocks = useCustom ? parseInt(customBlocks) : durationBlocks
-    if (blocks < 1 || blocks > MAX_LOCK_DURATION_BLOCKS) {
+    if (isNaN(blocks) || blocks < 1 || blocks > MAX_LOCK_DURATION_BLOCKS) {
       setError('Invalid lock duration')
       return
     }
@@ -69,7 +75,7 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
     try {
       // Call wallet to create the lock transaction
       // Pass ordinalOrigin to create an on-chain link between the lock and the content
-      const lockResult = await currentWallet!.lockBSV(sats, blocks, ordinalOrigin)
+      const lockResult = await wallet.lockBSV(sats, blocks, ordinalOrigin)
 
       setTxStatus('broadcasting')
 
@@ -84,25 +90,28 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
         lockAddress: lockResult.lockAddress
       })
 
+      if (!mountedRef.current) return
+
       if (result?.error) {
         setError(result.error)
       } else {
         setTxStatus('confirming')
-        // Immediately refresh balance after successful lock
         refreshBalance()
-        // Success! Refresh the page to show updated data
         router.refresh()
         setAmountSats('')
         setTag('')
       }
     } catch (err) {
+      if (!mountedRef.current) return
       console.error('Lock transaction failed:', err)
       const errorDetails = getErrorDetails(err)
       setError(errorDetails.message)
       setErrorAction(errorDetails.action)
     } finally {
-      setLoading(false)
-      setTxStatus('idle')
+      if (mountedRef.current) {
+        setLoading(false)
+        setTxStatus('idle')
+      }
     }
   }
 
@@ -141,7 +150,7 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-3 overflow-visible">
       {error && (
-        <div className="p-2 bg-[var(--danger)] text-white rounded text-xs">
+        <div className="p-2 bg-[var(--danger)] text-white rounded text-xs" role="alert">
           <div>{error}</div>
           {errorAction && (
             <div className="mt-1 opacity-90 text-[10px]">{errorAction}</div>
@@ -151,11 +160,8 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
 
       {/* Transaction status */}
       {txStatus !== 'idle' && (
-        <div className="p-2 bg-[var(--primary-light)] text-[var(--primary)] rounded text-xs flex items-center gap-2">
-          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
+        <div className="p-2 bg-[var(--primary-light)] text-[var(--primary)] rounded text-xs flex items-center gap-2" aria-live="polite">
+          <Spinner className="w-3 h-3" />
           {getStatusMessage()}
         </div>
       )}
@@ -231,6 +237,7 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
                     setDurationBlocks(preset.blocks)
                     setUseCustom(false)
                   }}
+                  aria-pressed={!useCustom && durationBlocks === preset.blocks}
                   className={`flex-1 py-1.5 text-xs rounded border transition-colors ${
                     !useCustom && durationBlocks === preset.blocks
                       ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
@@ -249,6 +256,7 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
                     : 'bg-[var(--surface-2)] text-[var(--foreground-secondary)] border-[var(--border)] hover:border-[var(--primary)]'
                 }`}
                 title="Custom duration"
+                aria-label="Custom duration"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z" />

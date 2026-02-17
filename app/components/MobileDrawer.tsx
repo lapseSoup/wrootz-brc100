@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface MobileDrawerProps {
   isOpen: boolean
@@ -9,6 +9,9 @@ interface MobileDrawerProps {
 }
 
 export default function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   // Prevent body scroll when drawer is open
   useEffect(() => {
     if (isOpen) {
@@ -21,16 +24,16 @@ export default function MobileDrawer({ isOpen, onClose, children }: MobileDrawer
     }
   }, [isOpen])
 
-  // Close on escape key
+  // Close on escape key — use ref to avoid re-attaching on every onClose change
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current()
     }
     if (isOpen) {
       document.addEventListener('keydown', handleEscape)
     }
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   return (
     <>
@@ -45,6 +48,9 @@ export default function MobileDrawer({ isOpen, onClose, children }: MobileDrawer
 
       {/* Drawer */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
         className={`fixed top-0 right-0 h-full w-[300px] max-w-[85vw] bg-[var(--surface-1)] z-[101] shadow-2xl transform transition-transform duration-300 ease-out md:hidden ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}

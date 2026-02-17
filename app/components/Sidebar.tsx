@@ -69,7 +69,7 @@ export default async function Sidebar({ filter = 'all' }: SidebarProps) {
           <div className="space-y-1">
             {recentActivity.map((activity, index) => (
               <Link
-                key={`${activity.postId}-${index}`}
+                key={`${activity.postId}-${activity.username}-${activity.tag || 'none'}-${index}`}
                 href={`/post/${activity.postId}`}
                 className="block p-2 -mx-2 rounded-lg hover:bg-[var(--surface-2)] transition-colors"
               >

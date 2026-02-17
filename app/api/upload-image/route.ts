@@ -5,6 +5,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { validateImageFile, getExtensionForType, isAllowedImageType } from '@/app/lib/file-validation'
+import { checkRateLimit, RATE_LIMITS } from '@/app/lib/rate-limit'
 
 // Max file size: 10MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -15,6 +16,15 @@ export async function POST(request: NextRequest) {
     const session = await getSession()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Rate limit upload operations
+    const rateLimit = await checkRateLimit(request, RATE_LIMITS.upload)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: `Too many uploads. Please try again in ${rateLimit.resetIn} seconds.` },
+        { status: 429 }
+      )
     }
 
     const formData = await request.formData()

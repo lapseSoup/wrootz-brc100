@@ -23,11 +23,14 @@ export default function Header({ user }: { user: User | null }) {
   const { count: unreadCount } = useNotificationCount(!!user)
 
   useEffect(() => {
-    // Load theme from localStorage
-    const savedTheme = localStorage.getItem('wrootz_theme') as 'light' | 'dark' | null
-    if (savedTheme) {
-      setTheme(savedTheme)
-      document.documentElement.setAttribute('data-theme', savedTheme)
+    try {
+      const savedTheme = localStorage.getItem('wrootz_theme') as 'light' | 'dark' | null
+      if (savedTheme) {
+        setTheme(savedTheme)
+        document.documentElement.setAttribute('data-theme', savedTheme)
+      }
+    } catch {
+      // localStorage unavailable (SSR or restricted context)
     }
   }, [])
 

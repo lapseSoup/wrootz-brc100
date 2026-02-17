@@ -2,7 +2,7 @@
  * Password validation policy for user registration
  *
  * Requirements:
- * - Minimum 8 characters
+ * - Minimum 12 characters
  * - Maximum 128 characters
  * - Not a common password
  * - Minimum character diversity
@@ -15,7 +15,14 @@ const COMMON_PASSWORDS = new Set([
   'welcome1', 'admin123', 'iloveyou', 'sunshine', 'princess', 'football',
   'baseball', 'trustno1', 'superman', 'michael1', 'shadow12', 'master12',
   'jennifer', 'michelle', 'whatever', 'qazwsxed', 'asdfghjk', 'zxcvbnm1',
-  '1q2w3e4r', 'passw0rd', 'p@ssword', 'p@ssw0rd', 'changeme', 'dragon12'
+  '1q2w3e4r', 'passw0rd', 'p@ssword', 'p@ssw0rd', 'changeme', 'dragon12',
+  'password123', 'qwerty123', '123456789', '1234567890', 'bitcoin123',
+  'letmein123', 'welcome123', 'monkey1234', 'master1234', 'dragon1234',
+  'iloveyou123', 'trustno1234', 'abc12345678', 'password1234', 'qwerty1234',
+  'admin12345', 'login12345', 'welcome12345', 'shadow123456', 'sunshine123',
+  'princess1234', 'football1234', 'baseball1234', 'michael12345', 'charlie123',
+  'donald12345', 'access12345', 'thunder12345', 'mustang12345', 'batman12345',
+  'starwars1234', 'whatever1234', 'freedom12345', 'nothing12345', 'secret12345'
 ])
 
 export interface PasswordValidation {
@@ -28,8 +35,8 @@ export interface PasswordValidation {
  */
 export function validatePassword(password: string): PasswordValidation {
   // Check minimum length
-  if (!password || password.length < 8) {
-    return { valid: false, error: 'Password must be at least 8 characters' }
+  if (!password || password.length < 12) {
+    return { valid: false, error: 'Password must be at least 12 characters' }
   }
 
   // Check maximum length (prevent DoS via bcrypt)
@@ -70,8 +77,8 @@ export function validatePassword(password: string): PasswordValidation {
 export function getPasswordStrength(password: string): number {
   let score = 0
 
-  if (password.length >= 8) score++
   if (password.length >= 12) score++
+  if (password.length >= 16) score++
   if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++
   if (/[0-9]/.test(password)) score++
   if (/[^A-Za-z0-9]/.test(password)) score++

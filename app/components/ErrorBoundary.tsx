@@ -22,6 +22,12 @@ export default class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error }
   }
 
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('ErrorBoundary caught:', error, errorInfo)
+    }
+  }
+
   override render() {
     if (this.state.hasError) {
       if (this.props.fallback) {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { formatWrootz, formatSats, bsvToSats, blocksToTimeString } from '@/app/lib/constants'
+import { formatWrootz, formatSats, bsvToSats, blocksToTimeString, BLOCKS_PER_HOUR, BLOCKS_PER_DAY } from '@/app/lib/constants'
 
 interface LockItemProps {
   lock: {
@@ -34,17 +34,18 @@ export default function LockItem({ lock, totalTu, forceExpand = false }: LockIte
 
   // Calculate decay rate: wrootz lost per block
   const decayRatePerBlock = lock.initialTu / lock.durationBlocks
-  // Wrootz lost per hour (6 blocks)
-  const decayRatePerHour = decayRatePerBlock * 6
-  // Wrootz lost per day (144 blocks)
-  const decayRatePerDay = decayRatePerBlock * 144
+  // Wrootz lost per hour
+  const decayRatePerHour = decayRatePerBlock * BLOCKS_PER_HOUR
+  // Wrootz lost per day
+  const decayRatePerDay = decayRatePerBlock * BLOCKS_PER_DAY
 
   // Percentage of original wrootz remaining
   const percentRemaining = lock.initialTu > 0 ? (lock.currentTu / lock.initialTu) * 100 : 0
 
   return (
-    <div
-      className="p-3 rounded-lg bg-[var(--background)] cursor-pointer transition-all hover:ring-1 hover:ring-[var(--primary)]"
+    <button
+      type="button"
+      className="w-full text-left p-3 rounded-lg bg-[var(--background)] cursor-pointer transition-all hover:ring-1 hover:ring-[var(--primary)]"
       onClick={handleClick}
     >
       <div className="flex items-center justify-between">
@@ -97,6 +98,6 @@ export default function LockItem({ lock, totalTu, forceExpand = false }: LockIte
           </p>
         </div>
       )}
-    </div>
+    </button>
   )
 }

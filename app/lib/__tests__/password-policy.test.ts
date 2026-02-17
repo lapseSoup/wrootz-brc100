@@ -5,14 +5,14 @@ describe('validatePassword', () => {
   it('rejects empty password', () => {
     expect(validatePassword('')).toEqual({
       valid: false,
-      error: 'Password must be at least 8 characters',
+      error: 'Password must be at least 12 characters',
     })
   })
 
   it('rejects short password', () => {
     expect(validatePassword('abc1234')).toEqual({
       valid: false,
-      error: 'Password must be at least 8 characters',
+      error: 'Password must be at least 12 characters',
     })
   })
 
@@ -36,14 +36,25 @@ describe('validatePassword', () => {
     expect(validatePassword('bitcoin').valid).toBe(false)
   })
 
+  it('rejects common passwords that meet length requirement', () => {
+    // These are 12+ chars so they pass the length check but should fail the common password check
+    const result1 = validatePassword('password1234')
+    expect(result1.valid).toBe(false)
+    expect(result1.error).toContain('too common')
+
+    const result2 = validatePassword('shadow123456')
+    expect(result2.valid).toBe(false)
+    expect(result2.error).toContain('too common')
+  })
+
   it('rejects common passwords case-insensitively', () => {
     expect(validatePassword('PASSWORD').valid).toBe(false)
     expect(validatePassword('Password').valid).toBe(false)
   })
 
   it('rejects low character diversity', () => {
-    expect(validatePassword('aabbccdd').valid).toBe(true) // 4 unique chars = OK
-    expect(validatePassword('aaabbbcc').valid).toBe(false) // 3 unique chars = rejected
+    expect(validatePassword('aabbccddeeff').valid).toBe(true) // 6 unique chars, 12 len = OK
+    expect(validatePassword('aaabbbaaabbb').valid).toBe(false) // 2 unique chars = rejected
   })
 
   it('rejects all-same-character passwords', () => {
@@ -58,7 +69,7 @@ describe('validatePassword', () => {
   it('accepts valid passwords', () => {
     expect(validatePassword('MyStr0ng!Pass').valid).toBe(true)
     expect(validatePassword('correct-horse-battery').valid).toBe(true)
-    expect(validatePassword('j9Kx#mP2').valid).toBe(true)
+    expect(validatePassword('j9Kx#mP2longr').valid).toBe(true)
   })
 })
 

@@ -57,7 +57,7 @@ function PostCardComponent({ post, searchTags, isHidden }: PostCardProps) {
       <article className="card-interactive group">
         <div className="flex gap-3">
           {/* Wrootz badge - shows tag-specific wrootz when searching by tags */}
-          <div className="flex-shrink-0 self-start flex flex-col items-center justify-center w-[70px] rounded-lg bg-[var(--accent-light)]" style={{ minHeight: searchTags && post.tagWrootz !== undefined ? '68px' : '52px' }}>
+          <div className="flex-shrink-0 self-start flex flex-col items-center justify-center w-[70px] rounded-lg bg-[var(--accent-light)] transition-all duration-150" style={{ minHeight: '68px' }}>
             <span className="text-base font-bold text-[var(--accent)] leading-tight">
               {formatWrootz(searchTags && post.tagWrootz !== undefined ? post.tagWrootz : post.totalTu)}
             </span>
@@ -90,16 +90,14 @@ function PostCardComponent({ post, searchTags, isHidden }: PostCardProps) {
               </p>
             )}
 
-            {/* Tags */}
-            {topTags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {topTags.map(([tag]) => (
-                  <span key={tag} className="tag text-xs">
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            )}
+            {/* Tags - min-height prevents layout shift when tags appear/disappear */}
+            <div className="flex flex-wrap gap-1.5 mt-2 min-h-[22px]">
+              {topTags.map(([tag]) => (
+                <span key={tag} className="tag text-xs">
+                  #{tag}
+                </span>
+              ))}
+            </div>
 
             {/* Footer - metadata */}
             <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-auto pt-2 text-xs text-[var(--foreground-muted)]">

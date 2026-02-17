@@ -67,6 +67,10 @@ export interface InscriptionVerification {
  * Fetch transaction data from WhatsOnChain
  */
 export async function fetchTransaction(txid: string): Promise<TransactionData | null> {
+  if (!/^[0-9a-f]{64}$/i.test(txid)) {
+    throw new Error('Invalid transaction ID format')
+  }
+
   try {
     const response = await fetch(`${WHATSONCHAIN_API}/tx/${txid}`, {
       headers: { 'Accept': 'application/json' },
@@ -80,7 +84,7 @@ export async function fetchTransaction(txid: string): Promise<TransactionData | 
 
     return await response.json()
   } catch (error) {
-    console.error(`Failed to fetch transaction ${txid}:`, error)
+    console.debug(`Failed to fetch transaction ${txid}:`, error)
     return null
   }
 }
@@ -289,7 +293,11 @@ export async function verifyLock(
 
     // Verify amount
     result.onChainAmount = lockOutput.value
-    result.amountMatches = lockOutput.value === expectedSatoshis
+    const LOCK_AMOUNT_TOLERANCE = 100 // Allow up to 100 sats difference (consistent with payment verification)
+    result.amountMatches = Math.abs(lockOutput.value - expectedSatoshis) <= LOCK_AMOUNT_TOLERANCE
+    if (result.amountMatches && lockOutput.value !== expectedSatoshis) {
+      console.warn(`Lock amount tolerance match: expected ${expectedSatoshis}, got ${lockOutput.value} (diff: ${Math.abs(lockOutput.value - expectedSatoshis)} sats)`)
+    }
 
     // Parse and verify timelock script (supports both OP_PUSH_TX and CLTV)
     const parsed = parseTimelockScript(lockOutput.scriptPubKey.hex)
@@ -323,10 +331,12 @@ export async function verifyLock(
       result.ordinalReferenceFound
 
     if (!result.verified && !result.error) {
+      // L12: Use generic error messages to avoid leaking on-chain amounts to the client.
+      // The result object still contains onChainAmount/onChainUnlockBlock for server-side logging.
       const issues = []
-      if (!result.amountMatches) issues.push(`amount mismatch (on-chain: ${result.onChainAmount}, expected: ${expectedSatoshis})`)
-      if (!result.unlockBlockMatches) issues.push(`unlock block mismatch (on-chain: ${result.onChainUnlockBlock}, expected: ${expectedUnlockBlock})`)
-      if (!result.ordinalReferenceFound) issues.push(`ordinal reference mismatch`)
+      if (!result.amountMatches) issues.push('amount mismatch')
+      if (!result.unlockBlockMatches) issues.push('unlock block mismatch')
+      if (!result.ordinalReferenceFound) issues.push('ordinal reference mismatch')
       result.error = `Verification failed: ${issues.join(', ')}`
     }
 
@@ -435,8 +445,13 @@ export async function verifyPayment(
     //   1. A P2PKH output whose pubKeyHash matches hash160(recipientPubKey)
     //   2. Direct comparison if recipientPubKeyOrAddress is already a pubKeyHash
     //
-    // Search all outputs for a payment to this address
+    // Validate recipient identifier format before processing
     const recipientScriptSuffix = recipientPubKeyOrAddress.toLowerCase()
+    if (!/^[0-9a-f]+$/.test(recipientScriptSuffix) ||
+        (recipientScriptSuffix.length !== 40 && recipientScriptSuffix.length !== 66 && recipientScriptSuffix.length !== 130)) {
+      result.error = 'Invalid recipient address format'
+      return result
+    }
 
     let totalPaymentToRecipient = 0
 
@@ -486,7 +501,8 @@ export async function verifyPayment(
       if (!result.paymentFound) {
         result.error = 'No payment to the seller\'s address found in this transaction'
       } else if (!result.amountCorrect) {
-        result.error = `Payment amount insufficient: found ${totalPaymentToRecipient} sats, expected ${expectedSatoshis} sats`
+        // L12: Generic message to avoid leaking on-chain amounts. Actual values are in result.onChainAmount.
+        result.error = 'Payment amount insufficient'
       }
     }
 

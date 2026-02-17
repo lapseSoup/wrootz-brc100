@@ -59,7 +59,9 @@ export default function CreatePostPage() {
             setReplyToPost(data)
           }
         })
-        .catch(() => {})
+        .catch(() => {
+          console.error('Failed to load reply target post:', replyToId)
+        })
     }
   }, [replyToId])
 

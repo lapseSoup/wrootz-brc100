@@ -61,14 +61,6 @@ async function logAdminAction(
   })
 }
 
-function disabledAction(name: string) {
-  return { error: `${name} is disabled on mainnet.` }
-}
-
-// NOTE: grantBSV is disabled for mainnet - users get real BSV from their wallet
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function grantBSV(_formData: FormData) { return disabledAction('Granting BSV') }
-
 // Delete a post (admin only)
 export async function deletePost(formData: FormData) {
   const adminCheck = await requireAdmin()
@@ -187,14 +179,6 @@ export async function setAdminStatus(formData: FormData) {
   return { success: true, message: `${isAdmin ? 'Granted' : 'Revoked'} admin for @${username}` }
 }
 
-// NOTE: resetUserBalance is disabled for mainnet
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function resetUserBalance(_formData: FormData) { return disabledAction('Resetting balance') }
-
-// NOTE: advanceBlocks is disabled for mainnet - blocks are real
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function advanceBlocks(_formData: FormData) { return disabledAction('Block manipulation') }
-
 // Get all users for admin
 export async function getAllUsers() {
   const adminCheck = await requireAdmin()
@@ -290,10 +274,6 @@ export async function getBlockInfo() {
     }
   }
 }
-
-// NOTE: setBlockHeight is disabled for mainnet
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function setBlockHeight(_formData: FormData) { return disabledAction('Block height manipulation') }
 
 // Get all locks for admin
 export async function getAllLocks() {

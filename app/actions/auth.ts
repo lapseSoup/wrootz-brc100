@@ -26,6 +26,10 @@ export async function register(formData: FormData) {
     return { error: 'Username must be between 3 and 20 characters' }
   }
 
+  if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+    return { error: 'Username can only contain letters, numbers, underscores, and hyphens' }
+  }
+
   // Validate password strength
   const passwordCheck = validatePassword(password)
   if (!passwordCheck.valid) {

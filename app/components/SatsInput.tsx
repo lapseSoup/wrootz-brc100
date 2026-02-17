@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 interface SatsInputProps {
   value: string
   onChange: (value: string) => void
-  max?: number  // TODO: Implement max validation
+  max?: number
   placeholder?: string
   className?: string
   disabled?: boolean
@@ -14,14 +14,11 @@ interface SatsInputProps {
 export default function SatsInput({
   value,
   onChange,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   max,
   placeholder = "10,000",
   className = "",
   disabled = false
 }: SatsInputProps) {
-  // Note: max parameter reserved for future validation feature
-  void max
   const [displayValue, setDisplayValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -47,7 +44,12 @@ export default function SatsInput({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value
-    const raw = parseToRaw(input)
+    let raw = parseToRaw(input)
+
+    // Clamp to max if provided (only when max is positive to avoid clamping to 0 when balance not loaded)
+    if (max !== undefined && max > 0 && raw && parseInt(raw, 10) > max) {
+      raw = String(max)
+    }
 
     // Update the raw value (for form state)
     onChange(raw)
@@ -69,11 +71,11 @@ export default function SatsInput({
   // Handle keyboard shortcuts for quick amounts
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow: backspace, delete, tab, escape, enter, arrow keys
-    if ([8, 46, 9, 27, 13, 37, 38, 39, 40].includes(e.keyCode)) {
+    if (['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(e.key)) {
       return
     }
     // Allow: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
-    if ((e.ctrlKey || e.metaKey) && [65, 67, 86, 88].includes(e.keyCode)) {
+    if ((e.ctrlKey || e.metaKey) && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase())) {
       return
     }
     // Block non-numeric characters (except comma which we handle)

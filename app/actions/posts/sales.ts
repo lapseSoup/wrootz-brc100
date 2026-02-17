@@ -161,6 +161,34 @@ export async function cancelSale(formData: FormData) {
 }
 
 /**
+ * Get the seller's wallet address for a post that's for sale.
+ * Called client-side before initiating wallet payment, to avoid exposing
+ * the address in HTML props (TOCTOU mitigation).
+ */
+export async function getSellerAddress(postId: string): Promise<{ address?: string; error?: string }> {
+  const session = await getSession()
+  if (!session) {
+    return { error: 'You must be logged in' }
+  }
+
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    select: {
+      forSale: true,
+      ownerId: true,
+      owner: { select: { walletAddress: true } }
+    }
+  })
+
+  if (!post) return { error: 'Post not found' }
+  if (!post.forSale) return { error: 'Post is not for sale' }
+  if (post.ownerId === session.userId) return { error: 'Cannot buy your own post' }
+  if (!post.owner.walletAddress) return { error: 'Seller has no wallet address configured' }
+
+  return { address: post.owner.walletAddress }
+}
+
+/**
  * Buy a post that's listed for sale.
  *
  * The purchase flow:
@@ -191,7 +219,7 @@ export async function buyPost(formData: FormData) {
     return { error: 'Post ID is required' }
   }
 
-  if (!txid || txid.length !== 64) {
+  if (!txid || txid.length !== 64 || !/^[0-9a-f]+$/i.test(txid)) {
     return { error: 'Valid transaction ID is required' }
   }
 

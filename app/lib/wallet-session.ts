@@ -3,6 +3,11 @@
  *
  * Stores wallet session tokens in httpOnly cookies (not localStorage)
  * to protect against XSS attacks.
+ *
+ * TODO (L14): Consider additional session hardening:
+ * - Forced re-auth after sensitive operations (lock, send, inscribe)
+ * - Sliding window expiry that extends on activity but caps at an absolute max
+ * - connectedAt is tracked but not currently used for TTL enforcement
  */
 'use server'
 
@@ -22,10 +27,10 @@ interface WalletSessionData {
 const getSessionPassword = (): string => {
   const secret = process.env.SESSION_SECRET
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('CRITICAL: SESSION_SECRET required for wallet session')
-    }
-    return 'dev_secret_32_chars_for_local_only!'
+    throw new Error('CRITICAL: SESSION_SECRET is required for wallet session security')
+  }
+  if (secret.length < 32) {
+    throw new Error('SESSION_SECRET must be at least 32 characters for wallet session security. Generate one with: openssl rand -hex 32')
   }
   return secret
 }
@@ -37,7 +42,7 @@ const WALLET_SESSION_OPTIONS = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax' as const,
-    maxAge: 60 * 60 * 24 * 30, // 30 days
+    maxAge: 60 * 60 * 8, // 8 hours
     path: '/',
   },
 }

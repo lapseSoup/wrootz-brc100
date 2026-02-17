@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/app/lib/db'
 import { verifyLock, verifyInscription, type LockVerification } from '@/app/lib/blockchain-verify'
+import { checkRateLimit, RATE_LIMITS } from '@/app/lib/rate-limit'
+
+const MAX_LOCKS_TO_VERIFY = 50
 
 /**
  * GET /api/verify/post/[id]
@@ -14,10 +17,19 @@ import { verifyLock, verifyInscription, type LockVerification } from '@/app/lib/
  * - Aggregate stats (total verified wrootz, verified lock count)
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Rate limit verification requests to protect WhatsOnChain API
+    const rateLimit = await checkRateLimit(request, RATE_LIMITS.verify)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: `Too many verification requests. Please try again in ${rateLimit.resetIn} seconds.` },
+        { status: 429 }
+      )
+    }
+
     const { id } = await params
 
     // Find the post with its locks
@@ -53,7 +65,10 @@ export async function GET(
 
     const ordinalOrigin = post.inscriptionTxid ? `${post.inscriptionTxid}_0` : null
 
-    for (const lock of post.locks) {
+    // Cap the number of locks to verify per request to prevent timeouts
+    const locksToVerify = post.locks.slice(0, MAX_LOCKS_TO_VERIFY)
+
+    for (const lock of locksToVerify) {
       if (!lock.txid) continue
 
       const expectedUnlockBlock = lock.startBlock + lock.durationBlocks
@@ -125,8 +140,9 @@ export async function GET(
       // Overall verification status
       fullyVerified:
         (!post.inscriptionTxid || inscriptionVerification?.verified) &&
-        verifiedLocks.length === post.locks.length,
+        verifiedLocks.length === locksToVerify.length,
 
+      partialVerification: post.locks.length > MAX_LOCKS_TO_VERIFY,
       verifiedAt: new Date().toISOString()
     })
   } catch (error) {

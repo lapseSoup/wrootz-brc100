@@ -1,5 +1,6 @@
 'use server'
 
+import { Prisma } from '@prisma/client'
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { updateLockStatusesIfNeeded } from '@/app/lib/lock-updater'
@@ -33,8 +34,7 @@ export async function getPostsWithTU(options?: {
   }
 
   // Build where clause based on filters
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const conditions: any[] = []
+  const conditions: Prisma.PostWhereInput[] = []
 
   // Exclude hidden posts (unless showing hidden only)
   if (hiddenPostIds.length > 0 && !options?.showHidden) {

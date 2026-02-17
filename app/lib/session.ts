@@ -11,11 +11,7 @@ import { cookies } from 'next/headers'
 const getSessionPassword = (): string => {
   const secret = process.env.SESSION_SECRET
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('CRITICAL: SESSION_SECRET environment variable is required in production')
-    }
-    console.warn('WARNING: Using development session secret. Set SESSION_SECRET in .env')
-    return 'dev_secret_32_chars_for_local_only!'
+    throw new Error('CRITICAL: SESSION_SECRET environment variable is required. Generate one with: openssl rand -hex 32')
   }
   if (secret.length < 32) {
     throw new Error('SESSION_SECRET must be at least 32 characters')

@@ -11,6 +11,7 @@ export default function WalletButton() {
     error,
     connect,
     disconnect,
+    clearError,
     availableWallets
   } = useWallet()
 
@@ -20,7 +21,9 @@ export default function WalletButton() {
   const [copied, setCopied] = useState(false)
 
   const handleConnect = async (walletType: 'brc100' | 'simplysats') => {
+    // L8: Clear both local and global wallet errors before retrying
     setConnectError(null)
+    clearError()
 
     try {
       await connect(walletType)

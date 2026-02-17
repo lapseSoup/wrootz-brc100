@@ -10,8 +10,8 @@
  * - Native unlockBSV endpoint support
  */
 
-import { Hash } from '@bsv/sdk'
 import type { WalletProvider, WalletBalance, SendResult, LockResult, InscriptionData, InscriptionResult, LockedOutput, UnlockResult } from './types'
+import { createP2PKHLockingScript, buildInscriptionScript } from './wallet-utils'
 import {
   WalletConnectionError,
   WalletAuthError,
@@ -131,8 +131,8 @@ export class SimplySatsAdapter implements WalletProvider {
             headers['X-Simply-Sats-Nonce'] = nonceData.nonce
           }
         }
-      } catch {
-        // Nonce fetch failed - proceed without it (wallet may not require nonces)
+      } catch (e) {
+        console.warn('CSRF nonce fetch failed:', e instanceof Error ? e.message : e)
       }
     }
 
@@ -164,7 +164,7 @@ export class SimplySatsAdapter implements WalletProvider {
       }
 
       const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, retryCount), MAX_RETRY_DELAY)
-      console.log(`Rate limited, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`)
+      console.debug(`Rate limited, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`)
       await this.sleep(delay)
       return this.api<T>(method, args, retryCount + 1)
     }
@@ -251,8 +251,12 @@ export class SimplySatsAdapter implements WalletProvider {
       throw new Error('Cannot connect in server environment')
     }
 
+    // L13: Clear callback arrays before (re)connect to prevent duplicate listeners
+    this.accountChangeCallbacks.length = 0
+    this.disconnectCallbacks.length = 0
+
     try {
-      console.log('Connecting to Simply Sats via HTTP...')
+      console.debug('Connecting to Simply Sats via HTTP...')
 
       // Test connection with getVersion (no token required)
       const versionResult = await this.withTimeout(
@@ -260,7 +264,7 @@ export class SimplySatsAdapter implements WalletProvider {
         CONNECTION_TIMEOUT,
         'Connection to Simply Sats timed out. Make sure Simply Sats is running.'
       )
-      console.log('Simply Sats version:', versionResult.version)
+      console.debug('Simply Sats version:', versionResult.version)
 
       // Request a session token for authenticated API calls
       // Simply Sats generates a token when waiting for authentication
@@ -280,7 +284,7 @@ export class SimplySatsAdapter implements WalletProvider {
       // Token is acquired via X-Simply-Sats-New-Token header (handled in api() method)
       if (this.sessionToken) {
         await this.saveSessionToken(this.sessionToken, publicKey)
-        console.log('Session token acquired and stored securely')
+        console.debug('Session token acquired and stored securely')
       }
 
       // Store the connection state
@@ -289,7 +293,7 @@ export class SimplySatsAdapter implements WalletProvider {
       // Only store identity key locally (it's a public key, not sensitive)
       localStorage.setItem('simplysats_identity_key', publicKey)
 
-      console.log('Connected to Simply Sats, identity key:', publicKey.slice(0, 16) + '...')
+      console.debug('Connected to Simply Sats, identity key:', publicKey.slice(0, 16) + '...')
       return publicKey
     } catch (error) {
       console.error('Failed to connect to Simply Sats:', error)
@@ -372,7 +376,7 @@ export class SimplySatsAdapter implements WalletProvider {
     const result = await this.api<{ txid: string }>('createAction', {
       description: 'Send BSV payment',
       outputs: [{
-        lockingScript: this.createP2PKHLockingScript(to),
+        lockingScript: createP2PKHLockingScript(to),
         satoshis,
         outputDescription: 'Payment output'
       }],
@@ -398,7 +402,7 @@ export class SimplySatsAdapter implements WalletProvider {
       // Get user's public key for tracking
       const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
 
-      console.log(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
+      console.debug(`Creating lock: ${satoshis} sats for ${blocks} blocks (until block ${unlockBlock})`)
 
       // Use Simply Sats native lockBSV which uses OP_PUSH_TX timelock
       // This delegates the script creation to the wallet's proven implementation
@@ -419,7 +423,7 @@ export class SimplySatsAdapter implements WalletProvider {
 
       // Simply Sats now includes the OP_RETURN in the lock transaction itself
       // when ordinalOrigin is provided in metadata, so no need for separate tx
-      console.log('Lock created:', result.txid)
+      console.debug('Lock created:', result.txid)
 
       return {
         txid: result.txid,
@@ -498,7 +502,7 @@ export class SimplySatsAdapter implements WalletProvider {
         throw new Error(`Lock is not yet spendable. ${lock.blocksRemaining} blocks remaining`)
       }
 
-      console.log(`Unlocking ${lock.satoshis} sats from outpoint ${outpoint}`)
+      console.debug(`Unlocking ${lock.satoshis} sats from outpoint ${outpoint}`)
 
       // Use the native unlockBSV endpoint which handles preimage construction internally
       // This is cleaner than manually building the createAction request
@@ -514,7 +518,7 @@ export class SimplySatsAdapter implements WalletProvider {
         throw new Error('Unlock transaction failed - no txid returned')
       }
 
-      console.log('Unlock successful:', result.txid)
+      console.debug('Unlock successful:', result.txid)
 
       return {
         txid: result.txid,
@@ -552,14 +556,14 @@ export class SimplySatsAdapter implements WalletProvider {
       const { publicKey } = await this.api<{ publicKey: string }>('getPublicKey', { identityKey: true })
 
       // Build the 1Sat Ordinals inscription script
-      const inscriptionScript = this.buildInscriptionScript(
+      const inscriptionScript = buildInscriptionScript(
         data.base64Data,
         data.mimeType,
         publicKey,
         data.map
       )
 
-      console.log('Creating inscription via Simply Sats, script length:', inscriptionScript.length)
+      console.debug('Creating inscription via Simply Sats, script length:', inscriptionScript.length)
 
       const result = await this.withTimeout(
         this.api<{ txid: string }>('createAction', {
@@ -581,7 +585,7 @@ export class SimplySatsAdapter implements WalletProvider {
         throw new Error('Inscription creation failed - no txid returned')
       }
 
-      console.log('Inscription created:', result.txid)
+      console.debug('Inscription created:', result.txid)
 
       return {
         txid: result.txid,
@@ -601,44 +605,7 @@ export class SimplySatsAdapter implements WalletProvider {
     }
   }
 
-  /**
-   * Build a 1Sat Ordinals inscription script
-   */
-  private buildInscriptionScript(
-    base64Data: string,
-    mimeType: string,
-    pubKeyHex: string,
-    map?: Record<string, string>
-  ): string {
-    // 1Sat Ordinals inscription format:
-    // OP_FALSE OP_IF "ord" OP_1 <content-type> OP_0 <data> OP_ENDIF <p2pkh>
-
-    const dataBytes = Buffer.from(base64Data, 'base64')
-    const mimeTypeBytes = Buffer.from(mimeType, 'utf8')
-
-    let script = '0063' // OP_FALSE OP_IF
-    script += this.pushData(Buffer.from('ord').toString('hex')) // "ord"
-    script += '51' // OP_1
-    script += this.pushData(mimeTypeBytes.toString('hex')) // content-type
-    script += '00' // OP_0
-    script += this.pushData(dataBytes.toString('hex')) // data
-
-    // Add optional MAP data if provided
-    if (map && Object.keys(map).length > 0) {
-      for (const [key, value] of Object.entries(map)) {
-        script += this.pushData(Buffer.from(key).toString('hex'))
-        script += this.pushData(Buffer.from(value).toString('hex'))
-      }
-    }
-
-    script += '68' // OP_ENDIF
-
-    // Add P2PKH for the recipient
-    const pubKeyHashHex = this.hash160(pubKeyHex)
-    script += '76a914' + pubKeyHashHex + '88ac'
-
-    return script
-  }
+  // buildInscriptionScript extracted to wallet-utils.ts
 
   onAccountChange(callback: (address: string) => void): () => void {
     this.accountChangeCallbacks.push(callback)
@@ -660,7 +627,10 @@ export class SimplySatsAdapter implements WalletProvider {
 
   async getNetwork(): Promise<'mainnet' | 'testnet'> {
     const { network } = await this.api<{ network: string }>('getNetwork')
-    return network as 'mainnet' | 'testnet'
+    if (network !== 'mainnet' && network !== 'testnet') {
+      throw new Error(`Unexpected network: ${network}`)
+    }
+    return network
   }
 
   async getBlockHeight(): Promise<number> {
@@ -679,70 +649,7 @@ export class SimplySatsAdapter implements WalletProvider {
     }
   }
 
-  // Helper methods
-
-  private createP2PKHLockingScript(address: string): string {
-    const decoded = this.decodeBase58Check(address)
-    const pubKeyHash = decoded.slice(1)
-    const pubKeyHashHex = Buffer.from(pubKeyHash).toString('hex')
-    return '76a914' + pubKeyHashHex + '88ac'
-  }
-
-  private decodeBase58Check(str: string): Uint8Array {
-    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-
-    let num = BigInt(0)
-    for (const char of str) {
-      const index = ALPHABET.indexOf(char)
-      if (index === -1) throw new Error('Invalid base58 character')
-      num = num * BigInt(58) + BigInt(index)
-    }
-
-    const hex = num.toString(16).padStart(50, '0')
-    const bytes = new Uint8Array(25)
-    for (let i = 0; i < 25; i++) {
-      bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-    }
-
-    // H1: Verify checksum - hash256(payload)[0:4] must match last 4 bytes
-    const payload = bytes.slice(0, 21)
-    const checksum = bytes.slice(21, 25)
-    const hash = Hash.hash256(Array.from(payload))
-    for (let i = 0; i < 4; i++) {
-      if (hash[i] !== checksum[i]) {
-        throw new Error('Invalid Base58Check checksum - address may be corrupted')
-      }
-    }
-
-    return payload
-  }
-
-  private pushData(hexData: string): string {
-    const len = hexData.length / 2
-    if (len < 0x4c) {
-      return len.toString(16).padStart(2, '0') + hexData
-    } else if (len <= 0xff) {
-      return '4c' + len.toString(16).padStart(2, '0') + hexData
-    } else if (len <= 0xffff) {
-      return '4d' + len.toString(16).padStart(4, '0').match(/.{2}/g)!.reverse().join('') + hexData
-    } else {
-      return '4e' + len.toString(16).padStart(8, '0').match(/.{2}/g)!.reverse().join('') + hexData
-    }
-  }
-
-  private hash160(hexData: string): string {
-    // Convert hex to bytes
-    const bytes: number[] = []
-    for (let i = 0; i < hexData.length; i += 2) {
-      bytes.push(parseInt(hexData.slice(i, i + 2), 16))
-    }
-
-    // Use @bsv/sdk Hash.hash160
-    const hash = Hash.hash160(bytes)
-
-    // Convert back to hex
-    return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('')
-  }
+  // Private crypto methods extracted to wallet-utils.ts
 }
 
 export const simplySatsWallet = new SimplySatsAdapter()

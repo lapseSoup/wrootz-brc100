@@ -273,7 +273,7 @@ export default function PostPageClient({
                   </p>
                 </div>
                 {user && !isOwner && (
-                  <SaleActions postId={post.id} action="buy" salePrice={post.salePrice ?? undefined} sellerAddress={(post.owner as { walletAddress?: string | null }).walletAddress ?? undefined} />
+                  <SaleActions postId={post.id} action="buy" salePrice={post.salePrice ?? undefined} />
                 )}
               </div>
             </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 interface ImageUploadSectionProps {
   uploadedImageUrl: string | null
@@ -23,10 +23,14 @@ export default function ImageUploadSection({
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const uploadIdRef = useRef(0)
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    // Track this upload to detect if a newer upload supersedes it
+    const thisUploadId = ++uploadIdRef.current
 
     setUploadError('')
     setUploading(true)
@@ -55,13 +59,20 @@ export default function ImageUploadSection({
         throw new Error(data.error || 'Upload failed')
       }
 
-      setUploadedImageUrl(data.imageUrl)
+      // Only update if this is still the latest upload
+      if (thisUploadId === uploadIdRef.current) {
+        setUploadedImageUrl(data.imageUrl)
+      }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed')
-      setImageFile(null)
-      setImagePreview(null)
+      if (thisUploadId === uploadIdRef.current) {
+        setUploadError(err instanceof Error ? err.message : 'Upload failed')
+        setImageFile(null)
+        setImagePreview(null)
+      }
     } finally {
-      setUploading(false)
+      if (thisUploadId === uploadIdRef.current) {
+        setUploading(false)
+      }
     }
   }
 

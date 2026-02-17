@@ -50,10 +50,10 @@ export default function RegisterPage() {
               name="password"
               className="input"
               placeholder="Choose a password"
-              minLength={4}
+              minLength={12}
               required
             />
-            <p className="text-xs text-[var(--muted)] mt-1">At least 4 characters</p>
+            <p className="text-xs text-[var(--muted)] mt-1">At least 12 characters</p>
           </div>
 
           <div>
@@ -66,12 +66,6 @@ export default function RegisterPage() {
               placeholder="Confirm your password"
               required
             />
-          </div>
-
-          <div className="p-3 rounded-lg" style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)' }}>
-            <p className="text-sm text-[var(--accent)] font-medium">
-              You&apos;ll receive 1 BSV to start exploring Wrootz!
-            </p>
           </div>
 
           <button

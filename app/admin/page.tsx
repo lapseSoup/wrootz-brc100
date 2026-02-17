@@ -7,13 +7,9 @@ import {
   getAllUsers,
   getAllPosts,
   getAllLocks,
-  grantBSV,
   deletePost,
   deleteLock,
   setAdminStatus,
-  resetUserBalance,
-  advanceBlocks,
-  setBlockHeight,
   getBlockInfo
 } from '@/app/actions/admin'
 import { formatSats, bsvToSats, formatWrootz, blocksToTimeString } from '@/app/lib/constants'
@@ -78,13 +74,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
 
   // Form states
-  const [grantUsername, setGrantUsername] = useState('')
-  const [grantAmount, setGrantAmount] = useState('10')
-  const [resetUsername, setResetUsername] = useState('')
-  const [resetBalance, setResetBalance] = useState('10')
   const [adminUsername, setAdminUsername] = useState('')
-  const [blocksToAdvance, setBlocksToAdvance] = useState('1')
-  const [newBlockHeight, setNewBlockHeight] = useState('')
 
   useEffect(() => {
     loadData()
@@ -105,7 +95,6 @@ export default function AdminPage() {
       if (postsResult.posts) setPosts(postsResult.posts)
       if (locksResult.locks) setLocks(locksResult.locks)
       setCurrentBlock(blockInfo.currentBlock)
-      setNewBlockHeight(String(blockInfo.currentBlock))
     }
   }
 
@@ -172,210 +161,14 @@ export default function AdminPage() {
 
       {/* Current Block Display */}
       <div className="card bg-[var(--primary)] text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold text-lg">Current Block Height</h2>
-            <p className="text-3xl font-bold">#{currentBlock}</p>
-            <p className="text-sm opacity-75">1 block = 10 minutes (like Bitcoin)</p>
-          </div>
-          <button
-            onClick={() => {
-              const formData = new FormData()
-              formData.set('blocks', '1')
-              handleAction(() => advanceBlocks(formData))
-            }}
-            disabled={loading}
-            className="btn bg-white text-[var(--primary)] hover:bg-opacity-90 text-lg px-6 py-3"
-          >
-            +1 Block
-          </button>
+        <div>
+          <h2 className="font-semibold text-lg">Current Block Height</h2>
+          <p className="text-3xl font-bold">#{currentBlock}</p>
+          <p className="text-sm opacity-75">Synced from blockchain (1 block = 10 minutes)</p>
         </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Block Controls */}
-        <div className="card">
-          <h2 className="font-semibold text-lg mb-4">Block Controls</h2>
-          <div className="space-y-4">
-            {/* Set Block Height */}
-            <div>
-              <label className="label">Set Block Height Directly</label>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={newBlockHeight}
-                  onChange={(e) => setNewBlockHeight(e.target.value)}
-                  className="input flex-1"
-                  placeholder="Enter block height"
-                  min="1"
-                />
-                <button
-                  onClick={() => {
-                    const formData = new FormData()
-                    formData.set('blockHeight', newBlockHeight)
-                    handleAction(() => setBlockHeight(formData))
-                  }}
-                  disabled={loading || !newBlockHeight || parseInt(newBlockHeight) <= 0}
-                  className="btn btn-primary"
-                >
-                  Set
-                </button>
-              </div>
-            </div>
-
-            {/* Advance Multiple Blocks */}
-            <div>
-              <label className="label">Advance Multiple Blocks</label>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={blocksToAdvance}
-                  onChange={(e) => setBlocksToAdvance(e.target.value)}
-                  className="input flex-1"
-                  placeholder="Number of blocks"
-                  min="1"
-                />
-                <button
-                  onClick={() => {
-                    const formData = new FormData()
-                    formData.set('blocks', blocksToAdvance)
-                    handleAction(() => advanceBlocks(formData))
-                  }}
-                  disabled={loading || !blocksToAdvance}
-                  className="btn btn-accent"
-                >
-                  Advance
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Presets */}
-            <div>
-              <label className="label">Quick Advance</label>
-              <div className="grid grid-cols-4 gap-2">
-                <button
-                  onClick={() => {
-                    const formData = new FormData()
-                    formData.set('blocks', '6')
-                    handleAction(() => advanceBlocks(formData))
-                  }}
-                  disabled={loading}
-                  className="btn btn-secondary text-xs"
-                >
-                  +1 hr
-                </button>
-                <button
-                  onClick={() => {
-                    const formData = new FormData()
-                    formData.set('blocks', '144')
-                    handleAction(() => advanceBlocks(formData))
-                  }}
-                  disabled={loading}
-                  className="btn btn-secondary text-xs"
-                >
-                  +1 day
-                </button>
-                <button
-                  onClick={() => {
-                    const formData = new FormData()
-                    formData.set('blocks', '1008')
-                    handleAction(() => advanceBlocks(formData))
-                  }}
-                  disabled={loading}
-                  className="btn btn-secondary text-xs"
-                >
-                  +1 week
-                </button>
-                <button
-                  onClick={() => {
-                    const formData = new FormData()
-                    formData.set('blocks', '4320')
-                    handleAction(() => advanceBlocks(formData))
-                  }}
-                  disabled={loading}
-                  className="btn btn-secondary text-xs"
-                >
-                  +1 month
-                </button>
-              </div>
-            </div>
-
-            <p className="text-xs text-[var(--muted)]">
-              Advancing blocks will expire locks and update wrootz accordingly. Expired locks get refunded.
-            </p>
-          </div>
-        </div>
-
-        {/* Grant BSV */}
-        <div className="card">
-          <h2 className="font-semibold text-lg mb-4">Grant BSV</h2>
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={grantUsername}
-              onChange={(e) => setGrantUsername(e.target.value)}
-              className="input"
-              placeholder="Username"
-            />
-            <input
-              type="number"
-              value={grantAmount}
-              onChange={(e) => setGrantAmount(e.target.value)}
-              className="input"
-              placeholder="Amount (BSV)"
-              step="0.1"
-              min="0.1"
-            />
-            <button
-              onClick={() => {
-                const formData = new FormData()
-                formData.set('username', grantUsername)
-                formData.set('amount', grantAmount)
-                handleAction(() => grantBSV(formData))
-              }}
-              disabled={loading || !grantUsername || !grantAmount}
-              className="btn btn-accent w-full"
-            >
-              Grant BSV
-            </button>
-          </div>
-        </div>
-
-        {/* Reset Balance */}
-        <div className="card">
-          <h2 className="font-semibold text-lg mb-4">Reset User Balance</h2>
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={resetUsername}
-              onChange={(e) => setResetUsername(e.target.value)}
-              className="input"
-              placeholder="Username"
-            />
-            <input
-              type="number"
-              value={resetBalance}
-              onChange={(e) => setResetBalance(e.target.value)}
-              className="input"
-              placeholder="New Balance (BSV)"
-              step="0.1"
-              min="0"
-            />
-            <button
-              onClick={() => {
-                const formData = new FormData()
-                formData.set('username', resetUsername)
-                formData.set('balance', resetBalance)
-                handleAction(() => resetUserBalance(formData))
-              }}
-              disabled={loading || !resetUsername}
-              className="btn btn-primary w-full"
-            >
-              Reset Balance
-            </button>
-          </div>
-        </div>
-
         {/* Set Admin */}
         <div className="card">
           <h2 className="font-semibold text-lg mb-4">Manage Admin Status</h2>

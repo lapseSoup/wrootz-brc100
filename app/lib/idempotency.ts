@@ -9,15 +9,7 @@
  * Uses Upstash Redis when available (production), falls back to in-memory (development).
  */
 
-import { Redis } from '@upstash/redis'
-
-// Initialize Redis client if credentials are available
-const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-  ? new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
-    })
-  : null
+import { redis } from './rate-limit-core'
 
 // In-memory store for idempotency keys (fallback for development)
 const idempotencyStore = new Map<string, {
@@ -150,19 +142,37 @@ export async function withIdempotency<T>(
 
 /**
  * Mark an idempotency key as in-progress (for long-running operations)
- * This prevents race conditions where two requests start before either completes
+ * Uses Redis SET NX when available for distributed locking across processes.
+ * Falls back to in-memory Set for single-process development.
  */
 const inProgressKeys = new Set<string>()
+const IN_PROGRESS_TTL_SECONDS = 120 // Auto-expire locks after 2 minutes
 
-export function markInProgress(key: string): boolean {
+export async function markInProgress(key: string): Promise<boolean> {
+  if (redis) {
+    try {
+      const result = await redis.set(`${REDIS_PREFIX}inprogress:${key}`, '1', { ex: IN_PROGRESS_TTL_SECONDS, nx: true })
+      return !!result
+    } catch (error) {
+      console.error('Redis lock acquire failed, falling back to in-memory:', error)
+    }
+  }
+
   if (inProgressKeys.has(key)) {
-    return false // Already in progress
+    return false
   }
   inProgressKeys.add(key)
   return true
 }
 
-export function clearInProgress(key: string): void {
+export async function clearInProgress(key: string): Promise<void> {
+  if (redis) {
+    try {
+      await redis.del(`${REDIS_PREFIX}inprogress:${key}`)
+    } catch (error) {
+      console.error('Redis lock release failed:', error)
+    }
+  }
   inProgressKeys.delete(key)
 }
 
@@ -179,8 +189,8 @@ export async function withIdempotencyAndLocking<T>(
     return { success: false, error: 'Duplicate request', cached: check.result }
   }
 
-  // Try to acquire lock
-  if (!markInProgress(key)) {
+  // Try to acquire distributed lock
+  if (!(await markInProgress(key))) {
     return { success: false, error: 'Operation already in progress' }
   }
 
@@ -189,6 +199,6 @@ export async function withIdempotencyAndLocking<T>(
     await storeIdempotencyResult(key, result)
     return { success: true, result }
   } finally {
-    clearInProgress(key)
+    await clearInProgress(key)
   }
 }
