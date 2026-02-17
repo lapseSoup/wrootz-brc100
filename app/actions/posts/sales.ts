@@ -185,8 +185,16 @@ export async function buyPost(formData: FormData) {
     return { error: 'Valid transaction ID is required' }
   }
 
-  // H3: Idempotency protection keyed on postId to prevent double-purchase
-  const idempotencyKey = generateIdempotencyKey('buyPost', postId)
+  // Prevent txid reuse: one blockchain tx can only pay for one post
+  const existingBuy = await prisma.transaction.findFirst({
+    where: { txid, action: 'Buy' }
+  })
+  if (existingBuy) {
+    return { error: 'This transaction has already been used for a purchase.' }
+  }
+
+  // H3: Idempotency protection keyed on txid to prevent double-purchase
+  const idempotencyKey = generateIdempotencyKey('buyPost', txid)
   const idempotencyResult = await withIdempotencyAndLocking(idempotencyKey, async () => {
     // Get post with active locks
     const post = await prisma.post.findUnique({
@@ -217,7 +225,10 @@ export async function buyPost(formData: FormData) {
       return { error: 'Seller has no wallet address configured. Cannot verify payment.' }
     }
 
-    const expectedSatoshis = Math.round(post.salePrice * 100_000_000)
+    // Avoid floating-point precision loss in BSV-to-satoshi conversion
+    const bsvToSatoshis = (bsv: number) => Math.round(Number((bsv * 100_000_000).toFixed(0)))
+
+    const expectedSatoshis = bsvToSatoshis(post.salePrice)
     try {
       const verification = await verifyPayment(txid, expectedSatoshis, post.owner.walletAddress)
       if (!verification.txExists) {
@@ -227,7 +238,7 @@ export async function buyPost(formData: FormData) {
         return { error: 'No payment to the seller\'s address was found in this transaction.' }
       }
       if (!verification.amountCorrect) {
-        return { error: `Payment amount insufficient. Expected ${expectedSatoshis} sats, found ${verification.onChainAmount ?? 0} sats.` }
+        return { error: 'Payment amount insufficient. Please ensure the correct amount was sent.' }
       }
     } catch (error) {
       console.error('Payment verification error:', error)
@@ -256,7 +267,7 @@ export async function buyPost(formData: FormData) {
           data: {
             action: 'Buy',
             amount: post.salePrice,
-            satoshis: Math.round(post.salePrice * 100_000_000),
+            satoshis: bsvToSatoshis(post.salePrice),
             txid,
             confirmed: true, // We verified it exists
             description: `Purchased: ${post.title}`,
@@ -269,7 +280,7 @@ export async function buyPost(formData: FormData) {
           data: {
             action: 'Profit',
             amount: ownerShare,
-            satoshis: Math.round(ownerShare * 100_000_000),
+            satoshis: bsvToSatoshis(ownerShare),
             txid,
             confirmed: true,
             description: `Sold: ${post.title} (${post.lockerSharePercentage}% to lockers)`,
@@ -293,11 +304,14 @@ export async function buyPost(formData: FormData) {
 
       await notifyPostSold(post.ownerId, buyerUsername, session.userId, postId, post.title, post.salePrice, post.body)
 
-      // Notify lockers of their profit share
+      // Notify lockers of their proportional profit share (based on currentTu)
       if (post.locks.length > 0 && lockerShare > 0) {
-        const profitPerLocker = lockerShare / post.locks.length
+        const totalLockTu = post.locks.reduce((sum: number, lock: { currentTu: number }) => sum + lock.currentTu, 0)
         for (const lock of post.locks) {
-          await notifyLockerProfit(lock.userId, postId, post.title, profitPerLocker, post.body)
+          const profitForLocker = totalLockTu > 0
+            ? lockerShare * (lock.currentTu / totalLockTu)
+            : lockerShare / post.locks.length // Fallback to equal split if all locks have 0 Tu
+          await notifyLockerProfit(lock.userId, postId, post.title, profitForLocker, post.body)
         }
       }
     } catch (notifyError) {
