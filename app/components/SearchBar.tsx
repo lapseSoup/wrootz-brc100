@@ -29,6 +29,11 @@ export default function SearchBar() {
   const currentFilter = searchParams.get('filter') || 'all'
 
   const [query, setQuery] = useState(currentSearch)
+
+  // Sync query state when URL search parameter changes (e.g., browser back/forward)
+  useEffect(() => {
+    setQuery(currentSearch)
+  }, [currentSearch])
   const [suggestions, setSuggestions] = useState<TagSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
@@ -36,7 +41,20 @@ export default function SearchBar() {
 
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
-  const debounceRef = useRef<NodeJS.Timeout | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mountedRef = useRef(true)
+
+  // Track mounted state to avoid setting state after unmount
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+    }
+  }, [])
 
   // Fetch suggestions for the current tag being typed
   const fetchSuggestions = useCallback(async (searchQuery: string) => {
@@ -50,14 +68,15 @@ export default function SearchBar() {
     setLoading(true)
     try {
       const res = await fetch(`/api/tags/search?q=${encodeURIComponent(currentTag)}`)
+      if (!mountedRef.current) return
       if (res.ok) {
         const data = await res.json()
-        setSuggestions(data)
+        if (mountedRef.current) setSuggestions(data)
       }
     } catch {
       console.error('Failed to fetch suggestions')
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }, [])
 
@@ -74,6 +93,7 @@ export default function SearchBar() {
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
+        debounceRef.current = null
       }
     }
   }, [query, fetchSuggestions])
