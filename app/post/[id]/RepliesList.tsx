@@ -2,14 +2,14 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { formatWrootz } from '@/app/lib/constants'
+import { formatWrootz, formatRelativeTime } from '@/app/lib/constants'
 
 interface Reply {
   id: string
   title: string
   body: string
   totalTu: number
-  createdAt: Date
+  createdAt: string
   creator: { id: string; username: string }
   owner: { id: string; username: string }
   locks: { currentTu: number }[]
@@ -33,21 +33,6 @@ export default function RepliesList({ replies }: RepliesListProps) {
     }
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   })
-
-  // Format relative time
-  const formatRelativeTime = (date: Date) => {
-    const now = new Date()
-    const diffMs = now.getTime() - new Date(date).getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMins / 60)
-    const diffDays = Math.floor(diffHours / 24)
-
-    if (diffMins < 1) return 'just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    if (diffDays < 7) return `${diffDays}d ago`
-    return new Date(date).toLocaleDateString()
-  }
 
   return (
     <div>
