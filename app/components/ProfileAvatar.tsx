@@ -1,6 +1,6 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useState, useEffect } from 'react'
 
 interface ProfileAvatarProps {
   username: string
@@ -16,21 +16,22 @@ function ProfileAvatarComponent({ username, avatarUrl, size = 'md' }: ProfileAva
   }
 
   const initial = username.charAt(0).toUpperCase()
+  const [imgFailed, setImgFailed] = useState(false)
 
-  if (avatarUrl) {
+  // Reset imgFailed when avatarUrl changes (e.g., user updates avatar)
+  useEffect(() => {
+    setImgFailed(false)
+  }, [avatarUrl])
+
+  if (avatarUrl && !imgFailed) {
     return (
-      // Using native img for user avatars - has onError fallback that requires DOM access
+      // Using native img for user avatars - has onError fallback via React state
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={avatarUrl}
         alt={`${username}'s avatar`}
         className={`${sizeClasses[size]} rounded-full object-cover bg-[var(--card)]`}
-        onError={(e) => {
-          // Fallback to initial if image fails to load
-          const target = e.target as HTMLImageElement
-          target.style.display = 'none'
-          target.nextElementSibling?.classList.remove('hidden')
-        }}
+        onError={() => setImgFailed(true)}
       />
     )
   }
