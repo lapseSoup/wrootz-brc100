@@ -34,6 +34,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
+    if (typeof sessionToken !== 'string' || sessionToken.length > 512) {
+      return NextResponse.json({ error: 'Invalid session token' }, { status: 400 })
+    }
+
+    // identityKey must be a compressed public key: 66 hex chars (33 bytes)
+    if (typeof identityKey !== 'string' || !/^[0-9a-fA-F]{66}$/.test(identityKey)) {
+      return NextResponse.json({ error: 'Invalid identity key format' }, { status: 400 })
+    }
+
     if (!['simplysats', 'brc100'].includes(walletType)) {
       return NextResponse.json({ error: 'Invalid wallet type' }, { status: 400 })
     }
