@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { formatWrootz, formatSats, bsvToSats, formatRelativeTime } from '@/app/lib/constants'
@@ -51,7 +51,10 @@ export default function PostPageClient({
   const isOwner = user?.id === post.ownerId
 
   // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
-  const actualTotalWrootz = activeLocks.reduce((sum, lock) => sum + lock.currentTu, 0)
+  const actualTotalWrootz = useMemo(
+    () => activeLocks.reduce((sum, lock) => sum + lock.currentTu, 0),
+    [activeLocks]
+  )
 
   // Fetch updated data
   const fetchData = useCallback(async () => {
@@ -77,7 +80,8 @@ export default function PostPageClient({
         ownerId: data.ownerId,
         inscriptionId: data.inscriptionId,
         inscriptionTxid: data.inscriptionTxid,
-        contentHash: data.contentHash
+        contentHash: data.contentHash,
+        listedAt: data.listedAt ?? null
       })
       setActiveLocks(data.activeLocks)
       setExpiredLocks(data.expiredLocks)
@@ -104,14 +108,41 @@ export default function PostPageClient({
     }
   }, [user])
 
-  // Poll for updates every 5 seconds
+  // Poll for updates only when tab is visible
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchData()
-      fetchUserBalance()
-    }, 5000)
+    let interval: ReturnType<typeof setInterval> | null = null
 
-    return () => clearInterval(interval)
+    const startPolling = () => {
+      if (interval) return
+      interval = setInterval(() => {
+        fetchData()
+        fetchUserBalance()
+      }, 10000) // 10 seconds instead of 5
+    }
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval)
+        interval = null
+      }
+    }
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling()
+      } else {
+        fetchData() // Immediate refresh on tab focus
+        startPolling()
+      }
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [fetchData, fetchUserBalance])
 
   return (
@@ -242,7 +273,7 @@ export default function PostPageClient({
                   </p>
                 </div>
                 {user && !isOwner && (
-                  <SaleActions postId={post.id} action="buy" salePrice={post.salePrice ?? undefined} />
+                  <SaleActions postId={post.id} action="buy" salePrice={post.salePrice ?? undefined} sellerAddress={(post.owner as { walletAddress?: string | null }).walletAddress ?? undefined} />
                 )}
               </div>
             </div>
@@ -332,9 +363,11 @@ export default function PostPageClient({
               <div className="section-header">
                 <h3 className="section-title text-sm">Sale Status</h3>
               </div>
-              {activeLocks.length > 0 ? (
+              {activeLocks.filter(lock =>
+                post.listedAt ? new Date(lock.createdAt) > new Date(post.listedAt) : false
+              ).length > 0 ? (
                 <p className="text-sm text-[var(--foreground-muted)]">
-                  Sale cannot be canceled while there are active locks. This protects lockers.
+                  Sale cannot be canceled while there are active locks placed after the listing. This protects lockers.
                 </p>
               ) : (
                 <SaleActions postId={post.id} action="cancel" />

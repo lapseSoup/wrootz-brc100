@@ -96,7 +96,7 @@ export interface PostBasic {
   owner: UserBasic
   creator: UserBasic
   locks: LockBasic[]
-  createdAt: Date
+  createdAt: string
   replyCount?: number
   replyTo?: { id: string; title: string } | null
   tagWrootz?: number  // wrootz for specific tag(s) when doing tag search
@@ -121,6 +121,7 @@ export interface Post {
   inscriptionId: string | null
   inscriptionTxid: string | null
   contentHash: string | null
+  listedAt: string | null
 }
 
 // ============================================================================
@@ -132,7 +133,7 @@ export interface Reply {
   title: string
   body: string
   totalTu: number
-  createdAt: Date
+  createdAt: string
   creator: UserWithId
   owner: UserWithId
   locks: LockForCalculation[]

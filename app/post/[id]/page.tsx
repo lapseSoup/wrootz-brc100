@@ -40,6 +40,7 @@ export default async function PostPage({
   // Map replies to expected format
   const formattedReplies = replies.map(reply => ({
     ...reply,
+    createdAt: reply.createdAt.toISOString(),
     locks: reply.locks || []
   }))
 
@@ -62,7 +63,8 @@ export default async function PostPage({
         // 1Sat Ordinal data
         inscriptionId: post.inscriptionId,
         inscriptionTxid: post.inscriptionTxid,
-        contentHash: post.contentHash
+        contentHash: post.contentHash,
+        listedAt: post.listedAt ? post.listedAt.toISOString() : null
       }}
       initialActiveLocks={activeLocks.map(l => ({
         ...l,
