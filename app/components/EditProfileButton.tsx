@@ -18,6 +18,7 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
 
   const MAX_BIO_LENGTH = 160
 
@@ -33,6 +34,26 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
       setUploading(false)
     }
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Close modal on Escape key
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen])
+
+  // Focus first focusable element when modal opens
+  useEffect(() => {
+    if (isOpen && modalRef.current) {
+      const firstFocusable = modalRef.current.querySelector<HTMLElement>(
+        'input, button, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+      firstFocusable?.focus()
+    }
+  }, [isOpen])
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -166,10 +187,10 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="card max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setIsOpen(false)}>
+          <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="edit-profile-title" className="card max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Edit Profile</h2>
+              <h2 id="edit-profile-title" className="text-lg font-bold">Edit Profile</h2>
               <button
                 onClick={() => setIsOpen(false)}
                 className="text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -206,7 +227,7 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
                   {avatarPreview && (
                     <button
                       onClick={handleRemoveAvatar}
-                      className="text-sm text-[var(--error)] hover:underline"
+                      className="text-sm text-[var(--danger)] hover:underline"
                     >
                       Remove
                     </button>
@@ -275,7 +296,7 @@ export default function EditProfileButton({ currentBio, currentAvatarUrl }: Edit
               </div>
 
               {error && (
-                <p className="text-sm text-[var(--error)]">{error}</p>
+                <p className="text-sm text-[var(--danger)]">{error}</p>
               )}
 
               <div className="flex gap-2 justify-end">

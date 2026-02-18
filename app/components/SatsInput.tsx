@@ -9,6 +9,7 @@ interface SatsInputProps {
   placeholder?: string
   className?: string
   disabled?: boolean
+  label?: string
 }
 
 export default function SatsInput({
@@ -17,7 +18,8 @@ export default function SatsInput({
   max,
   placeholder = "10,000",
   className = "",
-  disabled = false
+  disabled = false,
+  label = "Amount in sats"
 }: SatsInputProps) {
   const [displayValue, setDisplayValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
@@ -97,7 +99,7 @@ export default function SatsInput({
       placeholder={placeholder}
       disabled={disabled}
       className={`input ${className}`}
-      aria-label="Amount in sats"
+      aria-label={label}
     />
   )
 }

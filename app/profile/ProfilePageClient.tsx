@@ -5,6 +5,7 @@ import { formatSats, bsvToSats, formatWrootz, blocksToTimeString } from '@/app/l
 import Link from 'next/link'
 import { logout } from '@/app/actions/auth'
 import MyLocks from '@/app/components/MyLocks'
+import ErrorBoundary from '@/app/components/ErrorBoundary'
 import { useMountedRef } from '@/app/hooks/useMountedRef'
 
 interface User {
@@ -90,10 +91,38 @@ export default function ProfilePageClient({
     }
   }, [mountedRef])
 
-  // Poll for updates every 5 seconds
+  // Poll for updates only when tab is visible
   useEffect(() => {
-    const interval = setInterval(fetchData, 5000)
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = null
+
+    const startPolling = () => {
+      if (interval) return
+      interval = setInterval(fetchData, 5000)
+    }
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval)
+        interval = null
+      }
+    }
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling()
+      } else {
+        fetchData()
+        startPolling()
+      }
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [fetchData])
 
   return (
@@ -187,7 +216,9 @@ export default function ProfilePageClient({
       </div>
 
       {/* On-Chain Wallet Locks (BRC-100) */}
-      <MyLocks />
+      <ErrorBoundary>
+        <MyLocks />
+      </ErrorBoundary>
 
       {/* Active Locks (Database) */}
       <div className="card">

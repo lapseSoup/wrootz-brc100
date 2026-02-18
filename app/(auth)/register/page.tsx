@@ -8,6 +8,8 @@ import ErrorMessage from '@/app/components/ErrorMessage'
 export default function RegisterPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
@@ -52,6 +54,8 @@ export default function RegisterPage() {
               placeholder="Choose a password"
               minLength={12}
               required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
             />
             <p className="text-xs text-[var(--muted)] mt-1">At least 12 characters</p>
           </div>
@@ -65,7 +69,12 @@ export default function RegisterPage() {
               className="input"
               placeholder="Confirm your password"
               required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
             />
+            {confirmPassword && password !== confirmPassword && (
+              <p className="text-xs text-[var(--danger)] mt-1">Passwords do not match</p>
+            )}
           </div>
 
           <button

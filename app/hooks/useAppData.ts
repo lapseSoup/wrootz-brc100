@@ -8,12 +8,21 @@ import type { PostBasic, FeedFilter } from '@/app/lib/types'
  * Uses SWR for caching, deduplication, and automatic revalidation
  */
 
+// Custom error class that preserves HTTP status for retry logic
+class FetchError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'FetchError'
+    this.status = status
+  }
+}
+
 // Generic fetcher for JSON endpoints
 const fetcher = async (url: string) => {
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) {
-    const error = new Error('An error occurred while fetching data')
-    throw error
+    throw new FetchError(`HTTP ${res.status}`, res.status)
   }
   return res.json()
 }
@@ -174,12 +183,12 @@ export function usePost(postId: string | null) {
 export const swrConfig = {
   onError: (error: Error) => {
     // Don't log rate limit errors to console spam
-    if (error.message.includes('429')) return
+    if (error instanceof FetchError && error.status === 429) return
     console.error('SWR Error:', error)
   },
   shouldRetryOnError: (error: Error) => {
-    // Don't retry on auth errors
-    if (error.message.includes('401')) return false
+    // Don't retry on auth errors — prevents infinite 401 loops
+    if (error instanceof FetchError && (error.status === 401 || error.status === 403)) return false
     return true
   },
 }

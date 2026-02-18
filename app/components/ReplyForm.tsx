@@ -31,7 +31,8 @@ export default function ReplyForm({ parentPostId, parentPostTitle }: ReplyFormPr
       await createPost(formData)
       // createPost redirects on success, so we shouldn't reach here
     } catch {
-      // Redirect happens in createPost, this catch is for edge cases
+      // Redirect happens in createPost, this catch is for unexpected errors
+      setError('Failed to post reply. Please try again.')
       setLoading(false)
     }
   }

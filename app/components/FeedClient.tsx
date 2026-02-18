@@ -22,6 +22,9 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
   // Use a ref to track the current top post ID without triggering re-renders
   const currentTopIdRef = useRef<string | null>(initialPosts[0]?.id ?? null)
 
+  // Track whether SWR has completed its first fetch to avoid showing "Refreshing..." on initial load
+  const hasLoadedOnce = useRef(false)
+
   // Use centralized data fetching hook with SWR
   const { posts, searchTags, isValidating, refresh } = useFeed({
     search,
@@ -37,6 +40,7 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
   // Update displayed posts when new data arrives
   useEffect(() => {
     if (posts.length > 0) {
+      hasLoadedOnce.current = true
       const newPostIds = [...posts.map(p => p.id)].sort().join('|')
 
       if (newPostIds !== prevPostIdsRef.current) {
@@ -79,7 +83,7 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
       {hasNewPosts && (
         <button
           onClick={loadNewPosts}
-          className="w-full py-2 px-4 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--primary-dark)] transition-colors flex items-center justify-center gap-2"
+          className="w-full py-2 px-4 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--primary-hover)] transition-colors flex items-center justify-center gap-2"
           aria-live="polite"
           aria-label="New activity detected, click to refresh the feed"
         >
@@ -91,7 +95,7 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
       )}
 
       {/* Loading indicator for background refresh */}
-      {isValidating && displayedPosts.length > 0 && (
+      {isValidating && displayedPosts.length > 0 && hasLoadedOnce.current && (
         <div className="text-xs text-[var(--muted)] text-center py-1" aria-live="polite">
           Refreshing...
         </div>

@@ -40,6 +40,7 @@ export default function FollowTagButton({ tag, isFollowing: initialFollowing, si
     <button
       onClick={handleClick}
       disabled={isPending}
+      aria-busy={isPending}
       className={`${sizeClasses} rounded-full font-medium transition-colors ${
         isFollowing
           ? 'bg-[var(--primary)] text-white hover:bg-red-500'

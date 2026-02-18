@@ -11,12 +11,14 @@ interface HidePostButtonProps {
 
 export default function HidePostButton({ postId, isHidden = false }: HidePostButtonProps) {
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
   const router = useRouter()
 
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
+    setError(false)
     setLoading(true)
     try {
       if (isHidden) {
@@ -27,6 +29,7 @@ export default function HidePostButton({ postId, isHidden = false }: HidePostBut
       router.refresh()
     } catch (err) {
       console.error('Failed to hide/unhide post:', err)
+      setError(true)
     } finally {
       setLoading(false)
     }
@@ -44,7 +47,8 @@ export default function HidePostButton({ postId, isHidden = false }: HidePostBut
         }
         ${loading ? 'opacity-50 cursor-not-allowed' : ''}
       `}
-      title={isHidden ? 'Unhide this post' : 'Hide this post'}
+      title={error ? 'Action failed — try again' : isHidden ? 'Unhide this post' : 'Hide this post'}
+      aria-label={error ? 'Action failed — try again' : isHidden ? 'Unhide this post' : 'Hide this post'}
     >
       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         {isHidden ? (

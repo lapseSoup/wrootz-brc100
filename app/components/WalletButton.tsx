@@ -22,6 +22,7 @@ export default function WalletButton() {
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const walletSelectRef = useRef<HTMLDivElement>(null)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Move focus to the first interactive item when the connected dropdown opens
   useEffect(() => {
@@ -61,9 +62,17 @@ export default function WalletButton() {
     if (address) {
       navigator.clipboard.writeText(address)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000)
     }
   }
+
+  // Clean up copied timer on unmount
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+    }
+  }, [])
 
   // Close dropdown when focus leaves the container entirely
   const handleDropdownBlur = (e: React.FocusEvent<HTMLDivElement>) => {

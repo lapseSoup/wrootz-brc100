@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { formatWrootz, formatSats, bsvToSats, formatRelativeTime } from '@/app/lib/constants'
+import { useMountedRef } from '@/app/hooks/useMountedRef'
 import LockForm from '@/app/components/LockForm'
 import ReplyForm from '@/app/components/ReplyForm'
 import TipForm from '@/app/components/TipForm'
@@ -14,6 +15,7 @@ import TransactionHistory from './TransactionHistory'
 import RepliesList from './RepliesList'
 import YouTubeEmbed from '@/app/components/YouTubeEmbed'
 import VerificationBadge from '@/app/components/VerificationBadge'
+import ErrorBoundary from '@/app/components/ErrorBoundary'
 import type { Lock, Reply, Post, User, ReplyParent, Transaction } from '@/app/lib/types'
 
 interface PostPageClientProps {
@@ -48,6 +50,8 @@ export default function PostPageClient({
   const [currentBlock, setCurrentBlock] = useState(initialCurrentBlock)
   const [userBalance, setUserBalance] = useState(user?.cachedBalance ?? 0)
 
+  const mountedRef = useMountedRef()
+
   const isOwner = user?.id === post.ownerId
 
   // Calculate actual wrootz from active locks (more accurate than post.totalTu which may be stale)
@@ -61,6 +65,7 @@ export default function PostPageClient({
     try {
       const res = await fetch(`/api/posts/${post.id}`, { cache: 'no-store' })
       if (!res.ok) return
+      if (!mountedRef.current) return
 
       const data = await res.json()
 
@@ -92,13 +97,14 @@ export default function PostPageClient({
     } catch (err) {
       console.error('Failed to fetch post updates:', err)
     }
-  }, [post.id])
+  }, [post.id, mountedRef])
 
   // Also fetch user balance updates
   const fetchUserBalance = useCallback(async () => {
     if (!user) return
     try {
       const res = await fetch('/api/user/balance', { cache: 'no-store' })
+      if (!mountedRef.current) return
       if (res.ok) {
         const data = await res.json()
         setUserBalance(data.cachedBalance || 0)
@@ -106,7 +112,7 @@ export default function PostPageClient({
     } catch {
       // Silently fail - balance API might not exist yet
     }
-  }, [user])
+  }, [user, mountedRef])
 
   // Poll for updates only when tab is visible
   useEffect(() => {
@@ -273,7 +279,9 @@ export default function PostPageClient({
                   </p>
                 </div>
                 {user && !isOwner && (
-                  <SaleActions postId={post.id} action="buy" salePrice={post.salePrice ?? undefined} />
+                  <ErrorBoundary>
+                    <SaleActions postId={post.id} action="buy" salePrice={post.salePrice ?? undefined} />
+                  </ErrorBoundary>
                 )}
               </div>
             </div>
@@ -337,10 +345,12 @@ export default function PostPageClient({
               <div className="section-header">
                 <h3 className="section-title">Add Wrootz</h3>
               </div>
-              <LockForm
-                postId={post.id}
-                ordinalOrigin={post.inscriptionTxid ? `${post.inscriptionTxid}_0` : undefined}
-              />
+              <ErrorBoundary>
+                <LockForm
+                  postId={post.id}
+                  ordinalOrigin={post.inscriptionTxid ? `${post.inscriptionTxid}_0` : undefined}
+                />
+              </ErrorBoundary>
             </div>
           ) : null}
 
@@ -350,11 +360,13 @@ export default function PostPageClient({
               <div className="section-header">
                 <h3 className="section-title text-sm">Sell This Content</h3>
               </div>
-              <SaleActions
-                postId={post.id}
-                action="list"
-                currentLockerShare={post.lockerSharePercentage}
-              />
+              <ErrorBoundary>
+                <SaleActions
+                  postId={post.id}
+                  action="list"
+                  currentLockerShare={post.lockerSharePercentage}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -370,7 +382,9 @@ export default function PostPageClient({
                   Sale cannot be canceled while there are active locks placed after the listing. This protects lockers.
                 </p>
               ) : (
-                <SaleActions postId={post.id} action="cancel" />
+                <ErrorBoundary>
+                  <SaleActions postId={post.id} action="cancel" />
+                </ErrorBoundary>
               )}
             </div>
           )}
@@ -381,11 +395,13 @@ export default function PostPageClient({
               <div className="section-header">
                 <h3 className="section-title text-sm">Tip Owner</h3>
               </div>
-              <TipForm
-                postId={post.id}
-                ownerUsername={post.owner.username}
-                userBalance={userBalance}
-              />
+              <ErrorBoundary>
+                <TipForm
+                  postId={post.id}
+                  ownerUsername={post.owner.username}
+                  userBalance={userBalance}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -446,10 +462,12 @@ export default function PostPageClient({
             <div className="section-header">
               <h3 className="section-title text-sm">On-Chain Verification</h3>
             </div>
-            <VerificationBadge
-              postId={post.id}
-              inscriptionTxid={post.inscriptionTxid}
-            />
+            <ErrorBoundary>
+              <VerificationBadge
+                postId={post.id}
+                inscriptionTxid={post.inscriptionTxid}
+              />
+            </ErrorBoundary>
           </div>
         </div>
       </div>

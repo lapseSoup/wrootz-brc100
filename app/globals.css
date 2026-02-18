@@ -43,6 +43,9 @@
   /* Warning */
   --warning: #f59e0b;
   --warning-light: #fef3c7;
+
+  /* Success (alias for accent — brand-coherent) */
+  --success: var(--accent);
 }
 
 [data-theme="dark"] {
@@ -86,6 +89,9 @@
   /* Warning */
   --warning: #fbbf24;
   --warning-light: rgba(251, 191, 36, 0.15);
+
+  /* Success (alias for accent — brand-coherent) */
+  --success: var(--accent);
 }
 
 html {

@@ -1,6 +1,6 @@
 export default function Loading() {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-6">
       {/* Main content skeleton */}
       <div className="space-y-4">
         {/* Filter skeleton */}
@@ -35,7 +35,7 @@ export default function Loading() {
       </div>
 
       {/* Sidebar skeleton */}
-      <aside className="hidden lg:block space-y-5">
+      <aside className="hidden md:block space-y-5">
         <div className="card h-48 animate-pulse bg-[var(--surface-2)]" />
         <div className="card h-32 animate-pulse bg-[var(--surface-2)]" />
         <div className="card h-32 animate-pulse bg-[var(--surface-2)]" />

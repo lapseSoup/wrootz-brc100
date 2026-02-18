@@ -29,7 +29,12 @@ export default function CollapsibleSection({
           className="flex items-center gap-2 cursor-pointer select-none"
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && setIsOpen(!isOpen)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              setIsOpen(!isOpen)
+            }
+          }}
         >
           <svg
             className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-90' : ''}`}

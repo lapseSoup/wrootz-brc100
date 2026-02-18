@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useMountedRef } from '@/app/hooks/useMountedRef'
 
 interface VerificationBadgeProps {
   postId: string
@@ -27,6 +28,7 @@ export default function VerificationBadge({
   postId,
   inscriptionTxid
 }: VerificationBadgeProps) {
+  const mountedRef = useMountedRef()
   const [verifying, setVerifying] = useState(false)
   const [result, setResult] = useState<VerificationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -37,15 +39,17 @@ export default function VerificationBadge({
 
     try {
       const response = await fetch(`/api/verify/post/${postId}`)
+      if (!mountedRef.current) return
       if (!response.ok) {
         throw new Error('Verification failed')
       }
       const data = await response.json()
       setResult(data)
     } catch (err) {
+      if (!mountedRef.current) return
       setError(err instanceof Error ? err.message : 'Verification failed')
     } finally {
-      setVerifying(false)
+      if (mountedRef.current) setVerifying(false)
     }
   }
 

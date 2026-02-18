@@ -191,6 +191,7 @@ export default function SaleActions({ postId, action, salePrice, currentLockerSh
             value={priceSats}
             onChange={setPriceSats}
             placeholder="100,000,000"
+            label="Sale price in sats"
           />
           <p className="text-xs text-[var(--muted)] mt-1">
             1 BSV = 100,000,000 sats

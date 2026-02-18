@@ -47,6 +47,7 @@ export default function FollowUserButton({
     <button
       onClick={handleClick}
       disabled={isPending}
+      aria-busy={isPending}
       className={`${sizeClasses} rounded-lg font-medium transition-colors ${
         isFollowing
           ? 'bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] hover:border-red-500 hover:text-red-500'

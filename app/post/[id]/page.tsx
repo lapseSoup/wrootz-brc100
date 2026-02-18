@@ -3,8 +3,36 @@ import { getCurrentUser } from '@/app/actions/auth'
 import { getCurrentBlockHeight } from '@/app/lib/blockchain'
 import { notFound } from 'next/navigation'
 import PostPageClient from './PostPageClient'
+import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params
+  const post = await getPostById(id)
+
+  if (!post) {
+    return { title: 'Post Not Found | Wrootz' }
+  }
+
+  const title = `${post.title || 'Post'} | Wrootz`
+  const description = post.body
+    ? post.body.length > 160 ? post.body.slice(0, 160) + '...' : post.body
+    : 'A post on Wrootz'
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      ...(post.imageUrl ? { images: [post.imageUrl] } : {}),
+    },
+    twitter: {
+      card: post.imageUrl ? 'summary_large_image' : 'summary',
+    },
+  }
+}
 
 export default async function PostPage({
   params,

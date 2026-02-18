@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { recordLock } from '@/app/actions/posts'
 import { LOCK_DURATION_PRESETS, MAX_LOCK_DURATION_BLOCKS, formatSats, blocksToTimeString, formatWrootz, calculateWrootzFromSats } from '@/app/lib/constants'
@@ -32,11 +32,20 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
   const [errorAction, setErrorAction] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
   const [txStatus, setTxStatus] = useState<'idle' | 'signing' | 'broadcasting' | 'confirming'>('idle')
+  const [successMessage, setSuccessMessage] = useState('')
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setErrorAction(undefined)
+    setSuccessMessage('')
 
     // Check wallet connection
     let wallet = currentWallet
@@ -107,6 +116,10 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
         router.refresh()
         setAmountSats('')
         setTag('')
+        setSuccessMessage('BSV locked successfully!')
+        successTimerRef.current = setTimeout(() => {
+          if (mountedRef.current) setSuccessMessage('')
+        }, 5000)
       }
     } catch (err) {
       if (!mountedRef.current) return
@@ -157,6 +170,12 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 overflow-visible">
+      {successMessage && (
+        <p className="text-sm text-[var(--success)] bg-[var(--success)]/10 p-2 rounded" role="status">
+          {successMessage}
+        </p>
+      )}
+
       {error && (
         <div className="p-2 bg-[var(--danger)] text-white rounded text-xs" role="alert">
           <div>{error}</div>
@@ -230,6 +249,7 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
               max={userBalanceSats}
               placeholder="Custom sats"
               className="w-full text-sm"
+              label="Lock amount in sats"
             />
           </div>
 

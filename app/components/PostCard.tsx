@@ -1,6 +1,8 @@
-import { memo, useMemo } from 'react'
-import Link from 'next/link'
+'use client'
+
+import { memo, useMemo, useCallback } from 'react'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import { formatWrootz, formatSats, bsvToSats, formatRelativeTime } from '@/app/lib/constants'
 import CopyLinkButton from './CopyLinkButton'
 import HidePostButton from './HidePostButton'
@@ -14,6 +16,20 @@ interface PostCardProps {
 }
 
 function PostCardComponent({ post, searchTags, isHidden }: PostCardProps) {
+  const router = useRouter()
+  const href = `/post/${post.id}`
+
+  const handleCardClick = useCallback(() => {
+    router.push(href)
+  }, [router, href])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      router.push(href)
+    }
+  }, [router, href])
+
   // Get YouTube thumbnail if video URL exists
   const youtubeVideoId = post.videoUrl ? getYouTubeVideoId(post.videoUrl) : null
   const youtubeThumbnail = youtubeVideoId ? `https://img.youtube.com/vi/${youtubeVideoId}/mqdefault.jpg` : null
@@ -38,8 +54,13 @@ function PostCardComponent({ post, searchTags, isHidden }: PostCardProps) {
   )
 
   return (
-    <Link href={`/post/${post.id}`}>
-      <article className="card-interactive group">
+    <article
+      className="card-interactive group cursor-pointer"
+      role="link"
+      tabIndex={0}
+      onClick={handleCardClick}
+      onKeyDown={handleKeyDown}
+    >
         <div className="flex gap-3">
           {/* Wrootz badge - shows tag-specific wrootz when searching by tags */}
           <div className="flex-shrink-0 self-start flex flex-col items-center justify-center w-[70px] rounded-lg bg-[var(--accent-light)] transition-all duration-150" style={{ minHeight: '68px' }}>
@@ -148,8 +169,7 @@ function PostCardComponent({ post, searchTags, isHidden }: PostCardProps) {
             </div>
           )}
         </div>
-      </article>
-    </Link>
+    </article>
   )
 }
 

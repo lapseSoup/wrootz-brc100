@@ -8,6 +8,7 @@ import { MobileMenuProvider } from "./components/MobileMenuProvider";
 import MobileSidebar from "./components/MobileSidebar";
 import Sidebar from "./components/Sidebar";
 import { WalletProvider } from "./components/WalletProvider";
+import SWRProvider from "./components/SWRProvider";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -54,6 +55,7 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('wrootz_theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}})()` }} />
         <style dangerouslySetInnerHTML={{ __html: `
           :root {
             --background: #f8fafc;
@@ -77,6 +79,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen`}
         style={{ background: 'var(--background)', color: 'var(--foreground)' }}
       >
+        <SWRProvider>
         <WalletProvider>
           <MobileMenuProvider>
             <Header user={user} />
@@ -90,6 +93,7 @@ export default async function RootLayout({
             </main>
           </MobileMenuProvider>
         </WalletProvider>
+        </SWRProvider>
       </body>
     </html>
   );

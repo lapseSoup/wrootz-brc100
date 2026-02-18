@@ -99,6 +99,7 @@ export default function TipForm({ postId, ownerUsername, userBalance }: TipFormP
           placeholder="Custom amount"
           className="flex-1 text-sm"
           disabled={isPending}
+          label="Tip amount in sats"
         />
         <button
           type="submit"

@@ -7,8 +7,37 @@ import Link from 'next/link'
 import FollowUserButton from '@/app/components/FollowUserButton'
 import EditProfileButton from '@/app/components/EditProfileButton'
 import ProfileAvatar from '@/app/components/ProfileAvatar'
+import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
+
+export async function generateMetadata({ params }: { params: Promise<{ username: string }> }): Promise<Metadata> {
+  const { username } = await params
+
+  const user = await prisma.user.findUnique({
+    where: { username },
+    select: { bio: true, avatarUrl: true },
+  })
+
+  if (!user) {
+    return { title: `@${username} | Wrootz` }
+  }
+
+  const title = `@${username} | Wrootz`
+  const description = user.bio
+    ? user.bio.length > 160 ? user.bio.slice(0, 160) + '...' : user.bio
+    : `${username}'s profile on Wrootz`
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      ...(user.avatarUrl ? { images: [user.avatarUrl] } : {}),
+    },
+  }
+}
 
 export default async function UserProfilePage({
   params,

@@ -6,8 +6,26 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import FollowTagButton from '@/app/components/FollowTagButton'
 import TagWrootzGraph from './TagWrootzGraph'
+import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
+
+export async function generateMetadata({ params }: { params: Promise<{ tag: string }> }): Promise<Metadata> {
+  const { tag } = await params
+  const decodedTag = decodeURIComponent(tag)
+
+  const title = `#${decodedTag} | Wrootz`
+  const description = `Posts tagged with #${decodedTag} on Wrootz`
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+    },
+  }
+}
 
 export default async function TagPage({
   params,

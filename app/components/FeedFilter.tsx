@@ -60,6 +60,7 @@ export default function FeedFilter() {
           <button
             key={filter.value}
             onClick={() => setFilter(filter.value)}
+            aria-pressed={currentFilter === filter.value}
             className={`
               flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
               ${currentFilter === filter.value
