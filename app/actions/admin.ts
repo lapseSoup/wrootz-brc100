@@ -46,7 +46,8 @@ async function logAdminAction(
 ) {
   const headersList = await headers()
   const ipAddress = headersList.get('x-forwarded-for') || headersList.get('x-real-ip') || null
-  const userAgent = headersList.get('user-agent') || null
+  const rawUserAgent = headersList.get('user-agent') || null
+  const userAgent = rawUserAgent ? rawUserAgent.substring(0, 1024) : null
 
   await prisma.adminAuditLog.create({
     data: {

@@ -300,7 +300,12 @@ export async function verifyLock(
     const LOCK_AMOUNT_TOLERANCE = Math.max(100, Math.round(expectedSatoshis * 0.005))
     result.amountMatches = Math.abs(lockOutput.value - expectedSatoshis) <= LOCK_AMOUNT_TOLERANCE
     if (result.amountMatches && lockOutput.value !== expectedSatoshis) {
-      console.warn(`Lock amount tolerance match: expected ${expectedSatoshis}, got ${lockOutput.value} (diff: ${Math.abs(lockOutput.value - expectedSatoshis)} sats)`)
+      // Only log amounts in non-production to avoid exposing satoshi values in server logs
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`Lock amount tolerance match: expected ${expectedSatoshis}, got ${lockOutput.value} (diff: ${Math.abs(lockOutput.value - expectedSatoshis)} sats)`)
+      } else {
+        console.warn('Lock amount tolerance match applied during verification')
+      }
     }
 
     // Parse and verify timelock script (supports both OP_PUSH_TX and CLTV)

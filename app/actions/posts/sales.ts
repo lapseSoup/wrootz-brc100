@@ -3,7 +3,7 @@
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { revalidatePath } from 'next/cache'
-import { checkStrictRateLimit } from '@/app/lib/server-action-rate-limit'
+import { checkStrictRateLimit, checkGeneralRateLimit } from '@/app/lib/server-action-rate-limit'
 import { verifyPayment } from '@/app/lib/blockchain-verify'
 import { withIdempotencyAndLocking, generateIdempotencyKey } from '@/app/lib/idempotency'
 import { notifyPostSold, notifyLockerProfit } from '../notifications'
@@ -169,6 +169,11 @@ export async function getSellerAddress(postId: string): Promise<{ address?: stri
   const session = await getSession()
   if (!session) {
     return { error: 'You must be logged in' }
+  }
+
+  const rateLimit = await checkGeneralRateLimit('getSellerAddress')
+  if (!rateLimit.success) {
+    return { error: 'Too many requests. Please wait before trying again.' }
   }
 
   const post = await prisma.post.findUnique({

@@ -72,11 +72,18 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
     setLoading(true)
     setTxStatus('signing')
 
+    // Hoisted so catch block can append txid if lockBSV succeeded but recordLock failed
+    let lockTxid: string | null = null
+
     try {
       // Call wallet to create the lock transaction
       // Pass ordinalOrigin to create an on-chain link between the lock and the content
       const lockResult = await wallet.lockBSV(sats, blocks, ordinalOrigin)
 
+      // Capture txid immediately — if recordLock fails we must show it for recovery
+      lockTxid = lockResult.txid
+
+      if (!mountedRef.current) return
       setTxStatus('broadcasting')
 
       // Record the lock in our database
@@ -86,14 +93,14 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
         satoshis: sats,
         durationBlocks: blocks,
         tag: tag || null,
-        txid: lockResult.txid,
+        txid: lockTxid,
         lockAddress: lockResult.lockAddress
       })
 
       if (!mountedRef.current) return
 
       if (result?.error) {
-        setError(result.error)
+        setError(`${result.error} (txid: ${lockTxid})`)
       } else {
         setTxStatus('confirming')
         refreshBalance()
@@ -105,7 +112,8 @@ export default function LockForm({ postId, ordinalOrigin }: LockFormProps) {
       if (!mountedRef.current) return
       console.error('Lock transaction failed:', err)
       const errorDetails = getErrorDetails(err)
-      setError(errorDetails.message)
+      const txidSuffix = lockTxid ? ` (txid: ${lockTxid})` : ''
+      setError(errorDetails.message + txidSuffix)
       setErrorAction(errorDetails.action)
     } finally {
       if (mountedRef.current) {

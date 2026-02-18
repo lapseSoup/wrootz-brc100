@@ -1,7 +1,6 @@
 'use server'
 
 import { Prisma } from '@prisma/client'
-import { unstable_cache } from 'next/cache'
 import prisma from '@/app/lib/db'
 import { getSession } from '@/app/lib/session'
 import { updateLockStatusesIfNeeded } from '@/app/lib/lock-updater'
@@ -562,33 +561,3 @@ export async function getRisingPosts(limit: number = 5) {
     .sort((a, b) => b.recentWrootz - a.recentWrootz)
     .slice(0, limit)
 }
-
-/**
- * Cached version of getTopTags for use in Sidebar.
- * Revalidates every 5 minutes or when the 'locks' cache tag is invalidated.
- */
-export const getTopTagsCached = unstable_cache(
-  async (limit: number = 5) => getTopTags(limit),
-  ['top-tags'],
-  { revalidate: 300, tags: ['locks', 'top-tags'] }
-)
-
-/**
- * Cached version of getTopLockers for use in Sidebar.
- * Revalidates every 5 minutes or when the 'locks' cache tag is invalidated.
- */
-export const getTopLockersCached = unstable_cache(
-  async (limit: number = 5) => getTopLockers(limit),
-  ['top-lockers'],
-  { revalidate: 300, tags: ['locks', 'top-lockers'] }
-)
-
-/**
- * Cached version of getRecentActivity for use in Sidebar.
- * Revalidates every 5 minutes or when the 'locks' cache tag is invalidated.
- */
-export const getRecentActivityCached = unstable_cache(
-  async (limit: number = 5) => getRecentActivity(limit),
-  ['recent-activity'],
-  { revalidate: 300, tags: ['locks', 'recent-activity'] }
-)

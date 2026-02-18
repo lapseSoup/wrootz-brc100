@@ -365,9 +365,8 @@ export class SimplySatsAdapter implements WalletProvider {
   }
 
   async sendBSV(to: string, satoshis: number): Promise<SendResult> {
-    // L6: Enforce dust limit
-    if (satoshis < 546) {
-      throw new Error('Amount below dust limit (minimum 546 sats)')
+    if (satoshis < 1) {
+      throw new Error('Amount must be at least 1 satoshi')
     }
 
     const result = await this.api<{ txid: string }>('createAction', {

@@ -37,7 +37,7 @@ export default function FeedClient({ initialPosts, search, filter, archive, sear
   // Update displayed posts when new data arrives
   useEffect(() => {
     if (posts.length > 0) {
-      const newPostIds = posts.map(p => p.id).join(',')
+      const newPostIds = [...posts.map(p => p.id)].sort().join('|')
 
       if (newPostIds !== prevPostIdsRef.current) {
         // The set of posts (by ID) has changed — check if a new post appeared at the top

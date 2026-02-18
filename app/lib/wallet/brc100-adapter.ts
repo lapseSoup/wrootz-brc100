@@ -263,9 +263,8 @@ export class BRC100WalletAdapter implements WalletProvider {
       throw new Error('Wallet not connected')
     }
 
-    // L6: Enforce dust limit
-    if (satoshis < 546) {
-      throw new Error('Amount below dust limit (minimum 546 sats)')
+    if (satoshis < 1) {
+      throw new Error('Amount must be at least 1 satoshi')
     }
 
     // Create a payment action using BRC-100

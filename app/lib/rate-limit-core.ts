@@ -57,17 +57,18 @@ export interface RateLimitResult {
 /**
  * In-memory rate limiting fallback
  *
- * In production, auth and strict tiers fail closed (deny) rather than
- * falling back to in-memory, because in-memory state is not shared
- * across serverless instances and could be trivially bypassed.
+ * In production all tiers fail closed (deny) rather than falling back to
+ * in-memory, because in-memory state is not shared across serverless
+ * instances and would be trivially bypassed by distributing requests.
+ * In-memory fallback is development-only.
  */
 export function checkInMemoryLimit(
   key: string,
   limit: number,
   windowSeconds: number
 ): RateLimitResult {
-  // Fail closed for security-critical tiers in production
-  if (process.env.NODE_ENV === 'production' && (key.startsWith('auth:') || key.startsWith('strict:'))) {
+  // Fail closed for all tiers in production — in-memory is development-only
+  if (process.env.NODE_ENV === 'production') {
     return { allowed: false, remaining: 0, resetInSeconds: 60 }
   }
 

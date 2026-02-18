@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useMountedRef } from '@/app/hooks/useMountedRef'
 import {
   checkIsAdmin,
   getAllUsers,
@@ -64,6 +65,7 @@ interface Lock {
 
 export default function AdminPage() {
   const router = useRouter()
+  const mountedRef = useMountedRef()
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [posts, setPosts] = useState<Post[]>([])
@@ -77,12 +79,9 @@ export default function AdminPage() {
   // Form states
   const [adminUsername, setAdminUsername] = useState('')
 
-  useEffect(() => {
-    loadData()
-  }, [])
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     const adminCheck = await checkIsAdmin()
+    if (!mountedRef.current) return
     setIsAdmin(adminCheck.isAdmin)
 
     if (adminCheck.isAdmin) {
@@ -93,6 +92,7 @@ export default function AdminPage() {
           getAllLocks(),
           getBlockInfo()
         ])
+        if (!mountedRef.current) return
         // Only update state when ALL four promises resolved successfully
         if (usersResult.users) setUsers(usersResult.users)
         if (postsResult.posts) setPosts(postsResult.posts)
@@ -100,11 +100,16 @@ export default function AdminPage() {
         setCurrentBlock(blockInfo.currentBlock)
         setLoadError('')
       } catch (err) {
+        if (!mountedRef.current) return
         const message = err instanceof Error ? err.message : 'Failed to load dashboard data'
         setLoadError(message)
       }
     }
-  }
+  }, [mountedRef])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   async function handleAction(action: () => Promise<{ success?: boolean; error?: string; message?: string }>) {
     setLoading(true)
@@ -157,17 +162,17 @@ export default function AdminPage() {
 
       {/* Messages */}
       {message && (
-        <div className="p-4 bg-[var(--accent)] text-white rounded-lg">
+        <div role="status" aria-live="polite" className="p-4 bg-[var(--accent)] text-white rounded-lg">
           {message}
         </div>
       )}
       {error && (
-        <div className="p-4 bg-[var(--danger)] text-white rounded-lg">
+        <div role="alert" className="p-4 bg-[var(--danger)] text-white rounded-lg">
           {error}
         </div>
       )}
       {loadError && (
-        <div className="p-4 bg-[var(--danger)] text-white rounded-lg">
+        <div role="alert" className="p-4 bg-[var(--danger)] text-white rounded-lg">
           Failed to load dashboard data: {loadError}
         </div>
       )}

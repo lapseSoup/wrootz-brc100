@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/app/lib/db'
 import { verifyLock, verifyInscription, type LockVerification } from '@/app/lib/blockchain-verify'
 import { checkRateLimit, RATE_LIMITS } from '@/app/lib/rate-limit'
+import { calculateWrootzFromSats } from '@/app/lib/constants'
 
 const MAX_LOCKS_TO_VERIFY = 50
 
@@ -105,10 +106,12 @@ export async function GET(
     const verifiedLocks = lockVerifications.filter(lv => lv.verification.verified)
     const activeLocks = lockVerifications.filter(lv => lv.verification.isUnspent)
 
-    // Sum verified wrootz (using on-chain amounts)
+    // Sum verified wrootz using on-chain amounts (not stale DB values)
     const verifiedWrootz = verifiedLocks.reduce((sum, lv) => {
       const lock = post.locks.find((l: { id: string }) => l.id === lv.lockId)
-      return sum + (lock?.currentTu ?? 0)
+      if (!lock) return sum
+      const onChainSats = lv.verification.onChainAmount ?? lock.satoshis ?? 0
+      return sum + calculateWrootzFromSats(onChainSats, lock.durationBlocks)
     }, 0)
 
     // Sum on-chain satoshis from verified unspent locks
@@ -137,8 +140,9 @@ export async function GET(
         details: lockVerifications
       },
 
-      // Overall verification status
+      // Overall verification status — false when only a subset of locks was checked
       fullyVerified:
+        post.locks.length <= MAX_LOCKS_TO_VERIFY &&
         (!post.inscriptionTxid || inscriptionVerification?.verified) &&
         verifiedLocks.length === locksToVerify.length,
 

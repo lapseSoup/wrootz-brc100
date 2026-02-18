@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { listForSale, cancelSale, buyPost } from '@/app/actions/posts'
 import { getSellerAddress } from '@/app/actions/posts/sales'
@@ -29,6 +29,19 @@ export default function SaleActions({ postId, action, salePrice, currentLockerSh
   const [completedTxid, setCompletedTxid] = useState<string | null>(null)
 
   const mountedRef = useMountedRef()
+
+  // On mount, recover any pending purchase txid that survived a page refresh
+  useEffect(() => {
+    if (action === 'buy') {
+      try {
+        const savedTxid = localStorage.getItem(`pending-purchase-${postId}`)
+        if (savedTxid) {
+          setCompletedTxid(savedTxid)
+          setError(`Previous purchase may be pending. txid: ${savedTxid}`)
+        }
+      } catch { /* ignore */ }
+    }
+  }, [action, postId])
 
   const handleList = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -132,6 +145,8 @@ export default function SaleActions({ postId, action, salePrice, currentLockerSh
       if (!mountedRef.current) return
       setTxStatus('broadcasting')
       setCompletedTxid(sendResult.txid)
+      // Persist txid so recovery survives a page refresh if server confirmation fails
+      try { localStorage.setItem(`pending-purchase-${postId}`, sendResult.txid) } catch { /* ignore */ }
 
       // Submit txid to server for verification and ownership transfer
       const formData = new FormData()
@@ -147,6 +162,7 @@ export default function SaleActions({ postId, action, salePrice, currentLockerSh
         setError(`${result.error} (txid: ${sendResult.txid})`)
       } else {
         setCompletedTxid(null)
+        try { localStorage.removeItem(`pending-purchase-${postId}`) } catch { /* ignore */ }
         router.refresh()
       }
     } catch (err) {
