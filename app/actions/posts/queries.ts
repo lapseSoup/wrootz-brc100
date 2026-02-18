@@ -90,6 +90,9 @@ export async function getPostsWithTU(options?: {
   if (options?.filter === 'rising') {
     // Special handling for rising - posts sorted by recent wrootz gains.
     // Fetch a large pool (up to 500) so we can paginate within the ordered list.
+    // TODO(scale): This re-fetches the full 500-post pool on every paginated request.
+    // When post volume grows, consider caching the rising-pool IDs in Redis (e.g. 60s TTL)
+    // and serving paginated slices from the cache instead.
     const PAGE_SIZE = options?.limit || 20
     const RISING_POOL_SIZE = 500
     const allRisingPosts = await getRisingPosts(RISING_POOL_SIZE)

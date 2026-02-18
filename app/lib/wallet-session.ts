@@ -101,22 +101,6 @@ export async function saveWalletConnection(data: {
 }
 
 /**
- * Get the stored wallet session token
- */
-export async function getWalletToken(): Promise<string | null> {
-  const session = await getWalletSession()
-  return session.sessionToken || null
-}
-
-/**
- * Get the stored identity key
- */
-export async function getWalletIdentityKey(): Promise<string | null> {
-  const session = await getWalletSession()
-  return session.identityKey || null
-}
-
-/**
  * Get full wallet connection info.
  *
  * Returns { connected: false } when the session is absent, invalid, or has

@@ -5,7 +5,7 @@
 export { createPost } from './create'
 
 // Locking and tipping
-export { lockBSV, recordLock, tipPost } from './locks'
+export { recordLock, tipPost } from './locks'
 
 // Sales
 export { listForSale, cancelSale, buyPost } from './sales'

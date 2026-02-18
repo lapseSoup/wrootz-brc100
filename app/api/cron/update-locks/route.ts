@@ -24,31 +24,26 @@ export const maxDuration = 60 // Allow up to 60 seconds for processing
  * Optionally protected by CRON_SECRET.
  */
 export async function GET(request: NextRequest) {
-  // Verify cron secret - required in production
+  // Verify cron secret - required in all environments
   const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret && process.env.NODE_ENV === 'production') {
-    console.error('CRON_SECRET is required in production')
+  if (!cronSecret) {
+    console.error('CRON_SECRET is required. Set it in your environment variables.')
     return NextResponse.json(
-      { error: 'Server misconfiguration' },
-      { status: 500 }
+      { error: 'CRON_SECRET is required' },
+      { status: 401 }
     )
   }
-  // L3: Warn when cron endpoint is unprotected in development
-  if (!cronSecret && process.env.NODE_ENV !== 'production') {
-    console.warn('WARNING: Cron endpoint is unprotected. Set CRON_SECRET for security.')
-  }
-  if (cronSecret) {
-    const authHeader = request.headers.get('authorization')
-    const providedSecret = authHeader?.replace('Bearer ', '')
 
-    const hashA = createHash('sha256').update(providedSecret ?? '').digest()
-    const hashB = createHash('sha256').update(cronSecret).digest()
-    if (!timingSafeEqual(hashA, hashB)) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
+  const authHeader = request.headers.get('authorization')
+  const providedSecret = authHeader?.replace('Bearer ', '')
+
+  const hashA = createHash('sha256').update(providedSecret ?? '').digest()
+  const hashB = createHash('sha256').update(cronSecret).digest()
+  if (!timingSafeEqual(hashA, hashB)) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    )
   }
 
   try {

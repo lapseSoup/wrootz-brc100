@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef, useEffect } from 'react'
 import { tipPost } from '@/app/actions/posts'
 import { formatSats, bsvToSats, satsToBsv } from '@/app/lib/constants'
 import SatsInput from './SatsInput'
@@ -19,6 +19,13 @@ export default function TipForm({ postId, ownerUsername, userBalance }: TipFormP
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const mountedRef = useMountedRef()
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    }
+  }, [])
 
   const amountNum = parseInt(amount) || 0
   const amountBsv = satsToBsv(amountNum)
@@ -54,7 +61,7 @@ export default function TipForm({ postId, ownerUsername, userBalance }: TipFormP
         setSuccess(true)
         setAmount('')
         // Reset success message after 3 seconds
-        setTimeout(() => {
+        successTimerRef.current = setTimeout(() => {
           if (mountedRef.current) setSuccess(false)
         }, 3000)
       }

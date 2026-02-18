@@ -11,15 +11,6 @@ import { checkStrictRateLimit } from '@/app/lib/server-action-rate-limit'
 
 
 /**
- * DEPRECATED: This function uses simulated balance.
- * Use recordLock() instead for real BSV on-chain locks.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function lockBSV(_formData: FormData) {
-  return { error: 'Direct locking is disabled. Please use wallet-based locking via recordLock().' }
-}
-
-/**
  * Record a lock that was created on-chain via wallet.
  * This is for REAL BSV transactions.
  */

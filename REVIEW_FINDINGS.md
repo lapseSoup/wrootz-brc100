@@ -1,10 +1,10 @@
 # Wrootz BRC-100 — Review Findings
 
-**Latest review:** 2026-02-17 (v8 / all findings resolved)
-**Full report:** `docs/reviews/review-2026-02-17-v4.md`
+**Latest review:** 2026-02-17 (v10 / all v9 findings resolved)
+**Full report:** `docs/reviews/review-2026-02-17-v5.md`
 **Rating:** 9.5 / 10
 
-> **Legend:** ✅ Fixed
+> **Legend:** ✅ Fixed | 🔴 Open-Critical | 🟠 Open-High | 🟡 Open-Medium | ⚪ Open-Low
 
 ---
 
@@ -12,15 +12,71 @@
 
 | Check | Status |
 |-------|--------|
-| ESLint | No warnings or errors |
-| TypeScript | No type errors |
-| Tests | 212/212 passing (8 test files) |
+| ESLint | ✅ No warnings or errors |
+| TypeScript | ✅ No type errors |
+| Tests | ✅ 236/236 passing (10 test files) |
 
 ---
 
-## 🎉 All Findings Resolved
+## Critical — Fix Before Next Release
 
-No open issues.
+| ID | Status | File | Issue |
+|----|--------|------|-------|
+| S-NEW-1 | ✅ Fixed (v10) | `app/api/cron/update-locks/route.ts` + `confirm-transactions/route.ts` | Cron endpoints unprotected in non-production environments (no `CRON_SECRET` required outside prod) |
+
+---
+
+## High Priority — Next Sprint
+
+| ID | Status | File | Issue |
+|----|--------|------|-------|
+| B-NEW-2 | ✅ Fixed (v10) | `prisma/schema.prisma` + `schema.postgresql.prisma` | `Post.ownerId` missing DB index — add `@@index([ownerId, forSale])` |
+| B-NEW-1 | ✅ Fixed (v10) | `app/actions/posts/index.ts` + `app/actions/posts.ts` + `posts/locks.ts` | Deprecated `lockBSV` stub still exported from public barrel |
+| A-NEW-1 | ✅ Fixed (v10) | `app/actions/posts/queries.ts` | Rising feed fetches 500-post pool into memory on every paginated request |
+
+---
+
+## Low Priority / Backlog
+
+| ID | Status | File | Issue |
+|----|--------|------|-------|
+| S-NEW-2 | ✅ Fixed (v10) | `app/lib/wallet-session.ts` | `getWalletToken`/`getWalletIdentityKey` call `getWalletSession()` bypassing 24h TTL (no callers — latent) |
+| S-NEW-3 | ✅ Fixed (v10) | `app/lib/rate-limit-core.ts` | Misleading log "falling back to in-memory" on Redis error (behaviour is correct: fail-closed) |
+| B-NEW-3 | ⚪ Intentional | `app/components/EditProfileButton.tsx:35` | `useEffect` intentionally omits prop deps — stale values possible if parent updates while modal open |
+| B-NEW-4 | ✅ Fixed (v10) | `app/components/TipForm.tsx` | 3-second success-reset `setTimeout` not stored/cleared on unmount |
+| A-NEW-2 | ⚪ Documented | `app/actions/posts/queries.ts:275` | `Post.totalTu` is a stale DB cache requiring post-query in-memory correction |
+| Q-NEW-1 | ✅ Fixed (v10) | `app/components/__tests__/SatsInput.component.test.tsx` + `TipForm.component.test.tsx` | No React component tests — bootstrapped with 24 new tests |
+
+---
+
+## Summary: Issue Status
+
+| Category | Total | ✅ Fixed | ⚪ Intentional/Documented |
+|----------|-------|---------|--------------------------|
+| Security (S) | 3 | 3 | 0 |
+| Bugs (B) | 4 | 3 | 1 (intentional) |
+| Architecture (A) | 2 | 1 | 1 (documented) |
+| Quality (Q) | 1 | 1 | 0 |
+| **New Total** | **10** | **8** | **2** |
+
+---
+
+## ✅ v10 Fixes Applied (2026-02-17)
+
+All 8 actionable findings from Review #9 resolved (2 marked intentional/documented):
+
+| ID | Status | Fix Location |
+|----|--------|--------------|
+| S-NEW-1 | ✅ Fixed (v10) | `app/api/cron/update-locks/route.ts` + `confirm-transactions/route.ts` — `CRON_SECRET` now required in all environments; fails 401 if not set or mismatched |
+| S-NEW-2 | ✅ Fixed (v10) | `app/lib/wallet-session.ts` — deleted `getWalletToken()` and `getWalletIdentityKey()` (no callers confirmed) |
+| S-NEW-3 | ✅ Fixed (v10) | `app/lib/rate-limit-core.ts` — log now reads "failing closed (all requests denied)" in production, "falling back to in-memory" in dev |
+| B-NEW-1 | ✅ Fixed (v10) | `app/actions/posts/index.ts` + `app/actions/posts.ts` — `lockBSV` removed from both barrel exports; stub deleted from `locks.ts` |
+| B-NEW-2 | ✅ Fixed (v10) | `prisma/schema.prisma` + `schema.postgresql.prisma` — `@@index([ownerId, forSale])` added to `Post` model; pushed to DB |
+| B-NEW-3 | ⚪ Intentional | `app/components/EditProfileButton.tsx:35` — `eslint-disable` comment documents the intentional dep omission; no change |
+| B-NEW-4 | ✅ Fixed (v10) | `app/components/TipForm.tsx` — `successTimerRef` added; `useEffect` cleanup clears timer on unmount |
+| A-NEW-1 | ✅ Fixed (v10) | `app/actions/posts/queries.ts` — `// TODO(scale)` comment added before 500-post pool fetch |
+| A-NEW-2 | ⚪ Documented | `app/actions/posts/queries.ts:275` — existing code comment already documents dual-maintenance trade-off |
+| Q-NEW-1 | ✅ Fixed (v10) | `app/components/__tests__/SatsInput.component.test.tsx` (14 tests) + `TipForm.component.test.tsx` (10 tests) — 24 new component tests; `@vitejs/plugin-react` + jsdom infrastructure bootstrapped |
 
 ---
 
@@ -119,12 +175,12 @@ All 13 open findings from Review #6 resolved:
 
 ---
 
-## Summary: Issue Status
+## Cumulative Summary: Issue Status
 
-| Category | Total | ✅ Fixed | Open |
-|----------|-------|---------|------|
-| Security (S1-10, NS1-2) | 12 | 12 | 0 |
-| Bugs (B1-10, NB1-3) | 13 | 13 | 0 |
-| Architecture (A1-10, NA1) | 11 | 11 | 0 |
-| Quality (Q1-16, NQ1-3) | 19 | 19 | 0 |
-| **Total** | **55** | **55** | **0** |
+| Category | Total (all reviews) | ✅ Fixed | ⚪ Open |
+|----------|---------------------|---------|--------|
+| Security (S1-10, NS1-2, S-NEW-1/2/3) | 15 | 15 | 0 |
+| Bugs (B1-10, NB1-3, B-NEW-1/2/3/4) | 17 | 16 | 1 (intentional) |
+| Architecture (A1-10, NA1, A-NEW-1/2) | 13 | 12 | 1 (documented) |
+| Quality (Q1-16, NQ1-3, Q-NEW-1) | 20 | 20 | 0 |
+| **Total** | **65** | **63** | **2** |

@@ -19,7 +19,6 @@ export {
   createPost,
 
   // Locking and tipping
-  lockBSV,
   recordLock,
   tipPost,
 

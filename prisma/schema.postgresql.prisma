@@ -2,16 +2,14 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Database configuration
-// Development: SQLite (DATABASE_URL=file:./dev.db)
-// Production: PostgreSQL (DATABASE_URL=postgresql://user:pass@host:5432/wrootz)
-//
-// To switch databases:
-// 1. Update DATABASE_URL in .env
-// 2. Run: npx prisma generate
-// 3. Run: npx prisma migrate dev (or prisma db push for quick dev)
+// Production: PostgreSQL
+// Usage:
+// 1. Copy this file to schema.prisma (or set PRISMA_SCHEMA_PATH)
+// 2. Set DATABASE_URL=postgresql://user:pass@host:5432/wrootz in .env
+// 3. Run: npx prisma generate
+// 4. Run: npx prisma migrate deploy
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -19,20 +17,20 @@ model User {
   id            String   @id @default(cuid())
   username      String   @unique
   password      String   // hashed
-  bio           String?  // User bio/about section
-  avatarUrl     String?  // Profile picture URL
+  bio           String?  @db.Text
+  avatarUrl     String?
 
   // Wallet connection (real BSV)
-  walletAddress String?  @unique // BSV address from connected wallet
-  walletType    String?  // 'yours' | 'shuallet'
+  walletAddress String?  @unique
+  walletType    String?
 
   // NOTE: balance and lockedAmount are now tracked on-chain
   // These fields are kept for caching/display purposes only
-  cachedBalance     Float    @default(0.0) // Cached balance from wallet
-  cachedLockedAmount Float   @default(0.0) // Sum of amounts in active locks
+  cachedBalance     Float    @default(0.0)
+  cachedLockedAmount Float   @default(0.0)
 
-  isAdmin       Boolean  @default(false) // Admin users have special controls
-  displayUnit   String   @default("sats") // "sats" or "bsv"
+  isAdmin       Boolean  @default(false)
+  displayUnit   String   @default("sats")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -48,40 +46,38 @@ model User {
   hiddenPosts   HiddenPost[]
 }
 
-// Notifications
 model Notification {
   id        String   @id @default(cuid())
-  type      String   // 'lock_on_post', 'followed_user_post', 'followed_tag_activity', 'new_follower'
-  message   String
+  type      String
+  message   String   @db.Text
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  // Relations
   userId    String
   user      User     @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
   postId    String?
   post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
-  actorId   String?  // The user who triggered the notification
+  actorId   String?
 }
 
 model Post {
   id                    String   @id @default(cuid())
   title                 String
-  body                  String
-  imageUrl              String?  // Optional image
-  videoUrl              String?  // Optional YouTube video URL
-  lockerSharePercentage Float    @default(10.0) // Percent of sale shared with lockers
+  body                  String   @db.Text
+  imageUrl              String?
+  videoUrl              String?
+  lockerSharePercentage Float    @default(10.0)
   forSale               Boolean  @default(false)
   salePrice             Float    @default(0.0)
-  listedAt              DateTime? // When the post was listed for sale (null if not listed)
-  totalTu               Float    @default(0.0) // Cached total TU for sorting
+  listedAt              DateTime?
+  totalTu               Float    @default(0.0)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  // 1Sat Ordinal fields (on-chain content)
-  inscriptionId   String?  @unique // The inscription origin/ID on BSV blockchain
-  inscriptionTxid String?  // Transaction ID of the inscription
-  contentHash     String?  // Hash of the content for verification
+  // 1Sat Ordinal fields
+  inscriptionId   String?  @unique
+  inscriptionTxid String?
+  contentHash     String?
 
   // Relations
   creatorId     String
@@ -92,7 +88,6 @@ model Post {
   transactions  Transaction[]
   notifications Notification[]
 
-  // Bidirectional links (Ted Nelson style)
   outgoingLinks PostLink[] @relation("LinksFrom")
   incomingLinks PostLink[] @relation("LinksTo")
   hiddenBy      HiddenPost[]
@@ -101,21 +96,17 @@ model Post {
   @@index([ownerId, forSale])
 }
 
-// Bidirectional post linking - comments are posts that link to other posts
 model PostLink {
   id           String   @id @default(cuid())
-  type         String   @default("reply") // 'reply', 'quote', 'reference'
+  type         String   @default("reply")
   createdAt    DateTime @default(now())
 
-  // Source post (the one doing the linking, e.g., the reply)
   sourcePostId String
   sourcePost   Post     @relation("LinksFrom", fields: [sourcePostId], references: [id], onDelete: Cascade)
 
-  // Target post (the one being linked to, e.g., the parent)
   targetPostId String
   targetPost   Post     @relation("LinksTo", fields: [targetPostId], references: [id], onDelete: Cascade)
 
-  // Who created this link
   creatorId    String
 
   @@unique([sourcePostId, targetPostId])
@@ -124,32 +115,31 @@ model PostLink {
 
 model Lock {
   id             String   @id @default(cuid())
-  amount         Float    // Amount in BSV (satoshis / 100_000_000)
-  satoshis       Int      // Amount in satoshis (for precision)
-  durationBlocks Int      // Total duration in blocks
-  startBlock     Int      // Block height when lock was created
-  remainingBlocks Int     // Blocks remaining (updated by block monitor)
-  initialTu      Float    // TU at creation
-  currentTu      Float    // Current TU (decays over time)
-  tag            String?  // Optional tag (one per lock)
+  amount         Float
+  satoshis       Int
+  durationBlocks Int
+  startBlock     Int
+  remainingBlocks Int
+  initialTu      Float
+  currentTu      Float
+  tag            String?
   expired        Boolean  @default(false)
 
   // On-chain tracking
-  txid           String?  // Transaction ID of the lock on BSV blockchain
-  lockAddress    String?  // Address where BSV is locked
-  unlockTxid     String?  // Transaction ID when unlocked
-  confirmed      Boolean  @default(false)  // Whether tx exists on-chain
+  txid           String?
+  lockAddress    String?
+  unlockTxid     String?
+  confirmed      Boolean  @default(false)
 
-  // Blockchain verification (free via WhatsOnChain API)
-  verified       Boolean  @default(false)  // Whether lock passes all verification checks
-  verifiedAt     DateTime?                 // When last verified
-  onChainAmount  Int?                      // Actual satoshis found on-chain
-  onChainUnlock  Int?                      // Actual unlock block from timelock script
+  // Blockchain verification
+  verified       Boolean  @default(false)
+  verifiedAt     DateTime?
+  onChainAmount  Int?
+  onChainUnlock  Int?
 
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  // Relations
   userId    String
   user      User   @relation(fields: [userId], references: [id])
   postId    String
@@ -163,19 +153,17 @@ model Lock {
 
 model Transaction {
   id           String   @id @default(cuid())
-  action       String   // 'Lock', 'Unlock', 'Buy', 'Sell', 'Profit', 'Create', 'Tip'
-  amount       Float    // Amount in BSV
-  satoshis     Int?     // Amount in satoshis (for precision)
-  description  String?
+  action       String
+  amount       Float
+  satoshis     Int?
+  description  String?  @db.Text
 
-  // On-chain tracking
-  txid         String?  // Transaction ID on BSV blockchain
-  confirmed    Boolean  @default(false) // Whether the transaction is confirmed
-  blockHeight  Int?     // Block height when confirmed
+  txid         String?
+  confirmed    Boolean  @default(false)
+  blockHeight  Int?
 
   createdAt    DateTime @default(now())
 
-  // Relations
   userId  String
   user    User   @relation(fields: [userId], references: [id])
   postId  String?
@@ -184,15 +172,13 @@ model Transaction {
   @@index([txid])
 }
 
-// Blockchain state (real BSV blocks)
 model BlockchainState {
   id              String   @id @default("singleton")
-  currentBlock    Int      @default(0)  // Current BSV blockchain height
+  currentBlock    Int      @default(0)
   lastSyncTime    DateTime @default(now())
-  network         String   @default("mainnet") // 'mainnet' or 'testnet'
+  network         String   @default("mainnet")
 }
 
-// Following system
 model FollowedTag {
   id        String   @id @default(cuid())
   tag       String
@@ -216,7 +202,6 @@ model FollowedUser {
   @@unique([followerId, followingId])
 }
 
-// Hidden posts - users can hide posts they don't want to see
 model HiddenPost {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
@@ -229,18 +214,16 @@ model HiddenPost {
   @@unique([userId, postId])
 }
 
-// Admin audit log - tracks all admin actions for compliance
 model AdminAuditLog {
   id          String   @id @default(cuid())
-  action      String   // 'delete_post', 'delete_lock', 'set_admin', etc.
-  details     String   // JSON-encoded details of the action
-  targetType  String?  // 'post', 'lock', 'user', etc.
-  targetId    String?  // ID of the affected entity
-  ipAddress   String?  // IP address of the admin (if available)
-  userAgent   String?  // Browser user agent (if available)
+  action      String
+  details     String   @db.Text
+  targetType  String?
+  targetId    String?
+  ipAddress   String?
+  userAgent   String?
   createdAt   DateTime @default(now())
 
-  // The admin who performed the action
   adminId     String
 
   @@index([adminId])

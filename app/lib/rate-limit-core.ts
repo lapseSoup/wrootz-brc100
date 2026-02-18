@@ -111,7 +111,12 @@ export async function checkWithRedisOrFallback(
         resetInSeconds: Math.ceil((result.reset - Date.now()) / 1000),
       }
     } catch (error) {
-      console.error('Redis rate limit error, falling back to in-memory:', error)
+      if (process.env.NODE_ENV === 'production') {
+        // In production, checkInMemoryLimit() fails closed (denies all requests)
+        console.error('Redis rate limit error — failing closed (all requests denied):', error)
+      } else {
+        console.error('Redis rate limit error, falling back to in-memory:', error)
+      }
     }
   } else if (process.env.NODE_ENV === 'production') {
     console.warn(`Rate limiter unavailable (Redis not configured) for key: ${key}`)
